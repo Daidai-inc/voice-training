@@ -23,7 +23,8 @@ export default function Home() {
   const [track2, setTrack2] = useState<TrackData | null>(null);
   const [compareTab, setCompareTab] = useState<CompareTab>("mix");
   const [viewMode, setViewMode] = useState<ViewMode>("side-by-side");
-  const [busy, setBusy] = useState(false);
+  const [busy1, setBusy1] = useState(false);
+  const [busy2, setBusy2] = useState(false);
 
   const handleTrack1Ready = useCallback(
     (buffer: AudioBuffer, pitchData: PitchPoint[]) => {
@@ -40,6 +41,7 @@ export default function Home() {
   );
 
   const hasBothTracks = track1 && track2;
+  const anyBusy = busy1 || busy2;
 
   const tabs: { key: CompareTab; label: string }[] = [
     { key: "mix", label: "重ね再生" },
@@ -61,8 +63,8 @@ export default function Home() {
       <TrackSection
         title="トラック 1"
         color={COLORS.brand}
-        disabled={busy}
-        onBusy={setBusy}
+        disabled={busy2}
+        onBusy={setBusy1}
         onTrackReady={handleTrack1Ready}
         onTrackClear={() => setTrack1(null)}
       />
@@ -70,8 +72,8 @@ export default function Home() {
       <TrackSection
         title="トラック 2"
         color={COLORS.reference}
-        disabled={busy}
-        onBusy={setBusy}
+        disabled={busy1}
+        onBusy={setBusy2}
         onTrackReady={handleTrack2Ready}
         onTrackClear={() => setTrack2(null)}
       />

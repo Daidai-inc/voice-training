@@ -26,7 +26,8 @@ export default function CompareSection({
   const [viewMode, setViewMode] = useState<ViewMode>("side-by-side");
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
-  const [offset2, setOffset2] = useState(0); // トラック2のオフセット（秒）
+  const [offset2, setOffset2] = useState(0);
+  const [startFrom, setStartFrom] = useState(0); // 再生開始位置（秒）
 
   const source1Ref = useRef<AudioBufferSourceNode | null>(null);
   const source2Ref = useRef<AudioBufferSourceNode | null>(null);
@@ -36,7 +37,9 @@ export default function CompareSection({
   const rafRef = useRef<number>(0);
 
   const hasBothTracks = track1 && track2;
-  const maxDuration = Math.max(track1?.duration ?? 0, (track2?.duration ?? 0) + offset2);
+  const dur1 = track1?.duration ?? 0;
+  const dur2 = track2?.duration ?? 0;
+  const maxDuration = Math.max(dur1, dur2 + offset2);
 
   const stopMixPlayback = useCallback(() => {
     if (rafRef.current) {
@@ -59,28 +62,39 @@ export default function CompareSection({
     setIsPlaying(false);
   }, []);
 
-  const startMixPlayback = useCallback(() => {
+  const startMixPlayback = useCallback((fromTime?: number) => {
     if (!track1 || !track2) return;
 
     stopMixPlayback();
 
     const ctx = getAudioContext();
     const now = ctx.currentTime;
-    startTimeRef.current = now;
+    const playFrom = fromTime ?? startFrom;
 
-    // トラック1
+    // トラック1の再生開始位置
+    const t1Start = Math.max(0, Math.min(playFrom, dur1));
     const { source: s1, gain: g1 } = createPlaybackNodes(track1.buffer, volume1, 0);
     source1Ref.current = s1;
     gain1Ref.current = g1;
-    s1.start(now);
+    if (t1Start < dur1) {
+      s1.start(now, t1Start);
+    }
 
-    // トラック2（オフセット付き）
+    // トラック2の再生開始位置（オフセット考慮）
+    const t2ActualStart = playFrom - offset2;
     const { source: s2, gain: g2 } = createPlaybackNodes(track2.buffer, volume2, 0);
     source2Ref.current = s2;
     gain2Ref.current = g2;
-    // offset2秒後に再生開始
-    s2.start(now + offset2);
 
+    if (t2ActualStart >= 0 && t2ActualStart < dur2) {
+      // 既にトラック2の再生範囲内
+      s2.start(now, t2ActualStart);
+    } else if (t2ActualStart < 0) {
+      // まだトラック2の開始前 → 遅延して開始
+      s2.start(now + Math.abs(t2ActualStart), 0);
+    }
+
+    startTimeRef.current = now - playFrom;
     setIsPlaying(true);
 
     const updateTime = () => {
@@ -94,14 +108,24 @@ export default function CompareSection({
       }
     };
     rafRef.current = requestAnimationFrame(updateTime);
+  }, [track1, track2, volume1, volume2, offset2, dur1, dur2, maxDuration, startFrom, stopMixPlayback]);
 
-    // 終了ハンドラ
-    const checkEnd = () => {
-      // 両方終了したら停止
-    };
-    s1.onended = checkEnd;
-    s2.onended = checkEnd;
-  }, [track1, track2, volume1, volume2, offset2, maxDuration, stopMixPlayback]);
+  // 波形クリックで再生位置指定
+  const handleSeekTrack1 = useCallback((time: number) => {
+    setStartFrom(time);
+    if (isPlaying) {
+      startMixPlayback(time);
+    }
+  }, [isPlaying, startMixPlayback]);
+
+  const handleSeekTrack2 = useCallback((time: number) => {
+    // トラック2のクリック位置 → タイムライン上の位置に変換
+    const timelinePos = time + offset2;
+    setStartFrom(timelinePos);
+    if (isPlaying) {
+      startMixPlayback(timelinePos);
+    }
+  }, [isPlaying, offset2, startMixPlayback]);
 
   // 音量変更をリアルタイム反映
   useEffect(() => {
@@ -112,7 +136,6 @@ export default function CompareSection({
     if (gain2Ref.current) gain2Ref.current.gain.value = volume2;
   }, [volume2]);
 
-  // クリーンアップ
   useEffect(() => {
     return () => stopMixPlayback();
   }, [stopMixPlayback]);
@@ -154,21 +177,26 @@ export default function CompareSection({
         </div>
       </div>
 
+      {/* 波形表示 */}
       {viewMode === "side-by-side" ? (
-        <div className="space-y-2">
+        <div className="space-y-1">
+          <div className="text-[10px] pl-1" style={{ color: COLORS.brand }}>トラック 1</div>
           <WaveformCanvas
             peaks={peaks1}
             color={COLORS.brand}
             currentTime={currentTime}
-            duration={track1!.duration}
+            duration={dur1}
             height={80}
+            onSeek={handleSeekTrack1}
           />
+          <div className="text-[10px] pl-1 mt-2" style={{ color: COLORS.reference }}>トラック 2</div>
           <WaveformCanvas
             peaks={peaks2}
             color={COLORS.reference}
             currentTime={Math.max(0, currentTime - offset2)}
-            duration={track2!.duration}
+            duration={dur2}
             height={80}
+            onSeek={handleSeekTrack2}
           />
         </div>
       ) : (
@@ -180,40 +208,100 @@ export default function CompareSection({
           height={120}
           overlayPeaks={peaks2}
           overlayColor={COLORS.reference}
+          onSeek={(time) => {
+            setStartFrom(time);
+            if (isPlaying) startMixPlayback(time);
+          }}
         />
       )}
 
-      {/* 重ね再生コントロール */}
+      {/* 再生コントロール */}
       <div className="flex items-center gap-3 mt-3">
         <button
           onClick={() => (isPlaying ? stopMixPlayback() : startMixPlayback())}
-          className="px-3 py-1 text-xs rounded bg-white/10 hover:bg-white/20 transition"
+          className="px-3 py-1.5 text-xs rounded bg-white/10 hover:bg-white/20 transition"
         >
           {isPlaying ? "⏸ 停止" : "▶ 重ね再生"}
         </button>
         <span className="text-xs font-mono" style={{ color: "var(--color-text-muted)" }}>
           {formatTime(currentTime)} / {formatTime(maxDuration)}
         </span>
+        {startFrom > 0 && (
+          <span className="text-[10px]" style={{ color: "var(--color-text-muted)" }}>
+            ({formatTime(startFrom)}から)
+          </span>
+        )}
+        {startFrom > 0 && (
+          <button
+            onClick={() => setStartFrom(0)}
+            className="text-[10px] px-1.5 py-0.5 rounded bg-white/5 hover:bg-white/10 transition"
+            style={{ color: "var(--color-text-muted)" }}
+          >
+            先頭に戻す
+          </button>
+        )}
       </div>
 
       {/* タイミング調整 */}
-      <div className="flex items-center gap-2 mt-2">
-        <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>
-          トラック2オフセット:
-        </span>
-        <input
-          type="range"
-          min="-5"
-          max="5"
-          step="0.1"
-          value={offset2}
-          onChange={(e) => setOffset2(parseFloat(e.target.value))}
-          className="w-32 h-1 accent-white"
-        />
-        <span className="text-xs font-mono" style={{ color: "var(--color-text-muted)" }}>
-          {offset2 >= 0 ? "+" : ""}
-          {offset2.toFixed(1)}s
-        </span>
+      <div className="mt-3 p-3 rounded" style={{ backgroundColor: "var(--color-surface-light)" }}>
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>
+            トラック2 タイミング調整
+          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-mono" style={{ color: "var(--color-text-muted)" }}>
+              {offset2 >= 0 ? "+" : ""}{offset2.toFixed(1)}秒
+            </span>
+            {offset2 !== 0 && (
+              <button
+                onClick={() => setOffset2(0)}
+                className="text-[10px] px-1.5 py-0.5 rounded bg-white/5 hover:bg-white/10 transition"
+                style={{ color: "var(--color-text-muted)" }}
+              >
+                リセット
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* 粗調整 */}
+        <div className="flex items-center gap-2 mb-2">
+          <span className="text-[10px] w-12" style={{ color: "var(--color-text-muted)" }}>粗調整</span>
+          <input
+            type="range"
+            min={-Math.max(dur1, dur2)}
+            max={Math.max(dur1, dur2)}
+            step={1}
+            value={offset2}
+            onChange={(e) => setOffset2(parseFloat(e.target.value))}
+            className="flex-1 h-1 accent-white"
+          />
+        </div>
+
+        {/* 細調整 */}
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] w-12" style={{ color: "var(--color-text-muted)" }}>細調整</span>
+          <div className="flex gap-1">
+            {[-1, -0.5, -0.1].map((v) => (
+              <button
+                key={v}
+                onClick={() => setOffset2((prev) => +(prev + v).toFixed(1))}
+                className="px-2 py-0.5 text-[10px] rounded bg-white/5 hover:bg-white/15 transition"
+              >
+                {v}s
+              </button>
+            ))}
+            {[+0.1, +0.5, +1].map((v) => (
+              <button
+                key={v}
+                onClick={() => setOffset2((prev) => +(prev + v).toFixed(1))}
+                className="px-2 py-0.5 text-[10px] rounded bg-white/5 hover:bg-white/15 transition"
+              >
+                +{v}s
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );

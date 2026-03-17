@@ -144,8 +144,12 @@ export default function TrackSection({
       </div>
 
       {disabled && !audioBuffer && (
-        <div className="text-xs text-[var(--color-text-muted)] py-4 text-center">
-          もう一方のトラックの処理が完了するまでお待ちください
+        <div className="flex items-center justify-center gap-2 py-6 text-sm text-[var(--color-text-muted)]">
+          <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <circle cx="12" cy="12" r="10" strokeOpacity="0.3" />
+            <path d="M12 2a10 10 0 0 1 10 10" strokeLinecap="round" />
+          </svg>
+          もう一方のトラックを処理中です
         </div>
       )}
 

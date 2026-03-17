@@ -8,18 +8,18 @@ import { PitchPoint } from "@/lib/pitch-detector";
 import { useAudioContext } from "@/hooks/useAudioContext";
 import { useAudioRecorder } from "@/hooks/useAudioRecorder";
 import { useAudioPlayer } from "@/hooks/useAudioPlayer";
-import { useWaveformAnalyzer } from "@/hooks/useWaveformAnalyzer";
 import Recorder from "./Recorder";
 import AudioUploader from "./AudioUploader";
 import WaveformCanvas from "./WaveformCanvas";
 import PitchCanvas from "./PitchCanvas";
 import TransportControls from "./TransportControls";
-import RealtimePitchDisplay from "./RealtimePitchDisplay";
 import ProgressBar from "./ProgressBar";
 
 interface TrackSectionProps {
   title: string;
   color: string;
+  disabled?: boolean;
+  onBusy: (busy: boolean) => void;
   onTrackReady: (buffer: AudioBuffer, pitchData: PitchPoint[]) => void;
   onTrackClear: () => void;
 }
@@ -29,6 +29,8 @@ type InputMode = "record" | "upload";
 export default function TrackSection({
   title,
   color,
+  disabled = false,
+  onBusy,
   onTrackReady,
   onTrackClear,
 }: TrackSectionProps) {
@@ -38,10 +40,10 @@ export default function TrackSection({
   const [pitchData, setPitchData] = useState<PitchPoint[]>([]);
   const [pitchProgress, setPitchProgress] = useState<number | null>(null);
   const [showPitch, setShowPitch] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   const { getContext, resume } = useAudioContext();
   const recorder = useAudioRecorder();
-  const { timeData: realtimeData } = useWaveformAnalyzer(recorder.analyserNode);
   const player = useAudioPlayer(getContext);
 
   const peaks: WaveformPeaks | undefined = useMemo(() => {
@@ -55,6 +57,7 @@ export default function TrackSection({
   // ピッチ解析（手動トリガー）
   const analyzePitch = useCallback(async () => {
     if (!audioBuffer || pitchProgress !== null) return;
+    onBusy(true);
     setPitchProgress(0);
     setPitchData([]);
     const data = await extractPitchDataAsync(audioBuffer, (p) => {
@@ -64,33 +67,40 @@ export default function TrackSection({
     setPitchProgress(null);
     setShowPitch(true);
     onTrackReady(audioBuffer, data);
-  }, [audioBuffer, pitchProgress, onTrackReady]);
+    onBusy(false);
+  }, [audioBuffer, pitchProgress, onTrackReady, onBusy]);
 
   // ファイルアップロード
   const handleFileLoaded = useCallback(
     async (file: File) => {
-      const ctx = await resume();
+      onBusy(true);
+      setLoading(true);
       try {
+        const ctx = await resume();
         const buffer = await decodeAudioFile(file, ctx);
         setAudioBuffer(buffer);
         setFileName(file.name);
         onTrackReady(buffer, []);
       } catch {
         alert("音声ファイルの読み込みに失敗しました。");
+      } finally {
+        setLoading(false);
+        onBusy(false);
       }
     },
-    [resume, onTrackReady]
+    [resume, onTrackReady, onBusy]
   );
 
   // 録音開始
   const handleStartRecording = useCallback(async () => {
+    onBusy(true);
     const ctx = await resume();
     setAudioBuffer(null);
     setPitchData([]);
     setShowPitch(false);
     onTrackClear();
     await recorder.startRecording(ctx);
-  }, [resume, recorder, onTrackClear]);
+  }, [resume, recorder, onTrackClear, onBusy]);
 
   // 録音停止
   const handleStopRecording = useCallback(async () => {
@@ -100,7 +110,8 @@ export default function TrackSection({
       setFileName("録音データ");
       onTrackReady(buffer, []);
     }
-  }, [recorder, onTrackReady]);
+    onBusy(false);
+  }, [recorder, onTrackReady, onBusy]);
 
   // トラッククリア
   const handleClear = useCallback(() => {
@@ -109,12 +120,15 @@ export default function TrackSection({
     setPitchData([]);
     setShowPitch(false);
     setPitchProgress(null);
+    setLoading(false);
     player.stop();
     onTrackClear();
   }, [player, onTrackClear]);
 
+  const isRecording = recorder.recordingState === "recording";
+
   return (
-    <section className="space-y-3 p-5 rounded-xl bg-[var(--color-surface)]">
+    <section className={`space-y-3 p-5 rounded-xl bg-[var(--color-surface)] ${disabled ? "opacity-50 pointer-events-none" : ""}`}>
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-medium" style={{ color }}>
           {title}
@@ -129,7 +143,13 @@ export default function TrackSection({
         )}
       </div>
 
-      {!audioBuffer && (
+      {disabled && !audioBuffer && (
+        <div className="text-xs text-[var(--color-text-muted)] py-4 text-center">
+          もう一方のトラックの処理が完了するまでお待ちください
+        </div>
+      )}
+
+      {!audioBuffer && !disabled && !loading && (
         <div className="space-y-3">
           <div className="flex gap-2">
             <button
@@ -170,19 +190,19 @@ export default function TrackSection({
                 onStop={handleStopRecording}
                 error={recorder.error}
               />
-              <RealtimePitchDisplay
-                analyserNode={recorder.analyserNode}
-                isActive={recorder.recordingState === "recording"}
-              />
-              {recorder.recordingState === "recording" && (
-                <WaveformCanvas
-                  realtimeData={realtimeData}
-                  color={color}
-                  label="録音中"
-                />
+              {isRecording && (
+                <div className="text-xs text-[var(--color-text-muted)]">
+                  録音中...停止ボタンで終了
+                </div>
               )}
             </div>
           )}
+        </div>
+      )}
+
+      {loading && (
+        <div className="text-xs text-[var(--color-text-muted)] py-4 text-center">
+          読み込み中...
         </div>
       )}
 

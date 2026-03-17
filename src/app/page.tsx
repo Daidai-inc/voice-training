@@ -23,6 +23,7 @@ export default function Home() {
   const [track2, setTrack2] = useState<TrackData | null>(null);
   const [compareTab, setCompareTab] = useState<CompareTab>("mix");
   const [viewMode, setViewMode] = useState<ViewMode>("side-by-side");
+  const [busy, setBusy] = useState(false);
 
   const handleTrack1Ready = useCallback(
     (buffer: AudioBuffer, pitchData: PitchPoint[]) => {
@@ -60,6 +61,8 @@ export default function Home() {
       <TrackSection
         title="トラック 1"
         color={COLORS.brand}
+        disabled={busy}
+        onBusy={setBusy}
         onTrackReady={handleTrack1Ready}
         onTrackClear={() => setTrack1(null)}
       />
@@ -67,6 +70,8 @@ export default function Home() {
       <TrackSection
         title="トラック 2"
         color={COLORS.reference}
+        disabled={busy}
+        onBusy={setBusy}
         onTrackReady={handleTrack2Ready}
         onTrackClear={() => setTrack2(null)}
       />

@@ -205,8 +205,17 @@ export default function TrackSection({
       )}
 
       {loading && (
-        <div className="text-xs text-[var(--color-text-muted)] py-4 text-center">
-          読み込み中...
+        <div className="space-y-2 py-2">
+          <div className="flex items-center gap-2 text-sm text-[var(--color-text-muted)]">
+            <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="12" cy="12" r="10" strokeOpacity="0.3" />
+              <path d="M12 2a10 10 0 0 1 10 10" strokeLinecap="round" />
+            </svg>
+            音声ファイルを読み込み中...
+          </div>
+          <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
+            <div className="h-full bg-[var(--color-brand)] rounded-full animate-pulse" style={{ width: "60%" }} />
+          </div>
         </div>
       )}
 

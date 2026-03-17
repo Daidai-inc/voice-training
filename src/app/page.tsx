@@ -1,133 +1,168 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { ViewMode, WaveformPeaks } from "@/types/audio";
-import { extractPeaks } from "@/lib/audio-utils";
-import { PitchPoint } from "@/lib/pitch-detector";
+import { AudioTrack, WaveformPeaks } from "@/types/audio";
+import TrackPanel from "@/components/TrackPanel";
+import CompareSection from "@/components/CompareSection";
 import { COLORS } from "@/lib/constants";
-import TrackSection from "@/components/TrackSection";
-import ComparisonView from "@/components/ComparisonView";
-import PitchCanvas from "@/components/PitchCanvas";
-import MixPlayer from "@/components/MixPlayer";
-
-type CompareTab = "mix" | "pitch" | "waveform";
-
-interface TrackData {
-  buffer: AudioBuffer;
-  pitchData: PitchPoint[];
-  peaks: WaveformPeaks;
-}
+import { analyzePitch } from "@/lib/audio";
 
 export default function Home() {
-  const [track1, setTrack1] = useState<TrackData | null>(null);
-  const [track2, setTrack2] = useState<TrackData | null>(null);
-  const [compareTab, setCompareTab] = useState<CompareTab>("mix");
-  const [viewMode, setViewMode] = useState<ViewMode>("side-by-side");
-  const [busy1, setBusy1] = useState(false);
-  const [busy2, setBusy2] = useState(false);
+  // トラック1 state
+  const [track1, setTrack1] = useState<AudioTrack | null>(null);
+  const [peaks1, setPeaks1] = useState<WaveformPeaks | null>(null);
+  const [volume1, setVolume1] = useState(1);
+  const [isPlaying1, setIsPlaying1] = useState(false);
+  const [currentTime1, setCurrentTime1] = useState(0);
 
-  const handleTrack1Ready = useCallback(
-    (buffer: AudioBuffer, pitchData: PitchPoint[]) => {
-      setTrack1({ buffer, pitchData, peaks: extractPeaks(buffer, 800) });
-    },
-    []
-  );
+  // トラック2 state
+  const [track2, setTrack2] = useState<AudioTrack | null>(null);
+  const [peaks2, setPeaks2] = useState<WaveformPeaks | null>(null);
+  const [volume2, setVolume2] = useState(1);
+  const [isPlaying2, setIsPlaying2] = useState(false);
+  const [currentTime2, setCurrentTime2] = useState(0);
 
-  const handleTrack2Ready = useCallback(
-    (buffer: AudioBuffer, pitchData: PitchPoint[]) => {
-      setTrack2({ buffer, pitchData, peaks: extractPeaks(buffer, 800) });
-    },
-    []
-  );
+  // ピッチ解析
+  const [pitchAnalyzing, setPitchAnalyzing] = useState(false);
+  const [pitchProgress, setPitchProgress] = useState(0);
+  const [pitchResult, setPitchResult] = useState<string | null>(null);
 
-  const hasBothTracks = track1 && track2;
-  const anyBusy = busy1 || busy2;
+  const handleTrack1Loaded = useCallback((t: AudioTrack, p: WaveformPeaks) => {
+    setTrack1(t);
+    setPeaks1(p);
+    setCurrentTime1(0);
+    setIsPlaying1(false);
+  }, []);
 
-  const tabs: { key: CompareTab; label: string }[] = [
-    { key: "mix", label: "重ね再生" },
-    { key: "pitch", label: "音程比較" },
-    { key: "waveform", label: "波形比較" },
-  ];
+  const handleTrack2Loaded = useCallback((t: AudioTrack, p: WaveformPeaks) => {
+    setTrack2(t);
+    setPeaks2(p);
+    setCurrentTime2(0);
+    setIsPlaying2(false);
+  }, []);
+
+  const handlePitchAnalysis = async () => {
+    const target = track1 || track2;
+    if (!target || pitchAnalyzing) return;
+
+    setPitchAnalyzing(true);
+    setPitchProgress(0);
+    setPitchResult(null);
+
+    await new Promise<void>((resolve) => {
+      setTimeout(() => {
+        const pitches = analyzePitch(target.buffer, (pct) => {
+          setPitchProgress(pct);
+        });
+
+        let sum = 0;
+        let count = 0;
+        for (let i = 0; i < pitches.length; i++) {
+          if (pitches[i] > 0) {
+            sum += pitches[i];
+            count++;
+          }
+        }
+        const avgPitch = count > 0 ? sum / count : 0;
+
+        const noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+        let noteStr = "検出不可";
+        if (avgPitch > 0) {
+          const noteNum = 12 * Math.log2(avgPitch / 440) + 69;
+          const note = Math.round(noteNum);
+          const octave = Math.floor(note / 12) - 1;
+          const name = noteNames[note % 12];
+          noteStr = `${name}${octave} (${avgPitch.toFixed(1)} Hz)`;
+        }
+
+        setPitchResult(`平均ピッチ: ${noteStr} (${count}フレーム検出)`);
+        setPitchAnalyzing(false);
+        setPitchProgress(1);
+        resolve();
+      }, 50);
+    });
+  };
 
   return (
-    <main className="max-w-4xl mx-auto px-4 py-8 space-y-8">
-      <div>
-        <h1 className="text-2xl font-bold text-[var(--color-brand)]">
+    <main className="max-w-4xl mx-auto p-4 space-y-6">
+      <header className="text-center py-4">
+        <h1 className="text-2xl font-bold" style={{ color: COLORS.brand }}>
           Voice Training
         </h1>
-        <p className="text-sm text-[var(--color-text-muted)] mt-1">
-          歌声を録音・アップロードして、音程と波形を分析・比較
+        <p className="text-xs mt-1" style={{ color: "var(--color-text-muted)" }}>
+          お手本と自分の歌声を比較してトレーニング
         </p>
-      </div>
+      </header>
 
-      <TrackSection
-        title="トラック 1"
+      {/* トラック1 */}
+      <TrackPanel
+        label="トラック 1（お手本）"
         color={COLORS.brand}
-        disabled={busy2}
-        onBusy={setBusy1}
-        onTrackReady={handleTrack1Ready}
-        onTrackClear={() => setTrack1(null)}
+        track={track1}
+        peaks={peaks1}
+        volume={volume1}
+        isPlaying={isPlaying1}
+        currentTime={currentTime1}
+        onTrackLoaded={handleTrack1Loaded}
+        onVolumeChange={setVolume1}
+        onPlayStateChange={setIsPlaying1}
+        onTimeUpdate={setCurrentTime1}
       />
 
-      <TrackSection
-        title="トラック 2"
+      {/* トラック2 */}
+      <TrackPanel
+        label="トラック 2（自分の声）"
         color={COLORS.reference}
-        disabled={busy1}
-        onBusy={setBusy2}
-        onTrackReady={handleTrack2Ready}
-        onTrackClear={() => setTrack2(null)}
+        track={track2}
+        peaks={peaks2}
+        volume={volume2}
+        isPlaying={isPlaying2}
+        currentTime={currentTime2}
+        onTrackLoaded={handleTrack2Loaded}
+        onVolumeChange={setVolume2}
+        onPlayStateChange={setIsPlaying2}
+        onTimeUpdate={setCurrentTime2}
       />
 
-      <section className="space-y-3 p-5 rounded-xl bg-[var(--color-surface)]">
-        <h2 className="text-sm font-medium text-[var(--color-text)]">比較</h2>
+      {/* 比較セクション */}
+      <CompareSection
+        track1={track1}
+        track2={track2}
+        peaks1={peaks1}
+        peaks2={peaks2}
+        volume1={volume1}
+        volume2={volume2}
+      />
 
-        <div className="flex gap-2 border-b border-gray-700 pb-2">
-          {tabs.map((tab) => (
-            <button
-              key={tab.key}
-              onClick={() => setCompareTab(tab.key)}
-              className={`px-3 py-1.5 text-sm rounded-t-md transition-colors ${
-                compareTab === tab.key
-                  ? "bg-[var(--color-surface-light)] text-[var(--color-brand)]"
-                  : "text-[var(--color-text-muted)] hover:text-white"
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
+      {/* ピッチ解析（オプション） */}
+      <div className="rounded-lg p-4" style={{ backgroundColor: "var(--color-surface)" }}>
+        <h3 className="text-sm font-medium mb-3">ピッチ解析（オプション）</h3>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handlePitchAnalysis}
+            disabled={(!track1 && !track2) || pitchAnalyzing}
+            className="px-3 py-1.5 text-xs rounded bg-white/10 hover:bg-white/20 transition disabled:opacity-50"
+          >
+            {pitchAnalyzing ? `解析中... ${Math.round(pitchProgress * 100)}%` : "ピッチ解析を実行"}
+          </button>
+          {pitchResult && (
+            <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>
+              {pitchResult}
+            </span>
+          )}
         </div>
-
-        {!hasBothTracks ? (
-          <div className="flex items-center justify-center h-40 rounded-lg bg-[var(--color-surface-light)] text-[var(--color-text-muted)] text-sm">
-            2つのトラックを用意すると比較できます
+        {pitchAnalyzing && (
+          <div className="mt-2 h-1 rounded-full overflow-hidden" style={{ backgroundColor: "var(--color-surface-light)" }}>
+            <div
+              className="h-full transition-all"
+              style={{
+                width: `${pitchProgress * 100}%`,
+                backgroundColor: COLORS.brand,
+              }}
+            />
           </div>
-        ) : compareTab === "mix" ? (
-          <MixPlayer
-            buffer1={track1.buffer}
-            buffer2={track2.buffer}
-            label1="トラック 1"
-            label2="トラック 2"
-          />
-        ) : compareTab === "pitch" ? (
-          <PitchCanvas
-            mode="comparison"
-            recordedPitch={track1.pitchData}
-            referencePitch={track2.pitchData}
-            recordedDuration={track1.buffer.duration}
-            referenceDuration={track2.buffer.duration}
-            color1={COLORS.brand}
-            color2={COLORS.reference}
-            height={250}
-          />
-        ) : (
-          <ComparisonView
-            recordedPeaks={track1.peaks}
-            referencePeaks={track2.peaks}
-            viewMode={viewMode}
-            onViewModeChange={setViewMode}
-          />
         )}
-      </section>
+      </div>
     </main>
   );
 }

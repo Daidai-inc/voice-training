@@ -1,39 +1,46 @@
 "use client";
 
-import { useRef, useEffect, useCallback } from "react";
+import { useEffect, useRef, useCallback } from "react";
 import { WaveformPeaks } from "@/types/audio";
 import { COLORS } from "@/lib/constants";
 
 interface WaveformCanvasProps {
-  peaks?: WaveformPeaks;
-  realtimeData?: Float32Array | null;
+  peaks: WaveformPeaks | null;
   color: string;
-  label?: string;
-  playbackProgress?: number;
+  currentTime: number;
+  duration: number;
   height?: number;
+  onSeek?: (time: number) => void;
+  overlayPeaks?: WaveformPeaks | null;
+  overlayColor?: string;
 }
 
 export default function WaveformCanvas({
   peaks,
-  realtimeData,
   color,
-  label,
-  playbackProgress,
-  height = 150,
+  currentTime,
+  duration,
+  height = 120,
+  onSeek,
+  overlayPeaks,
+  overlayColor,
 }: WaveformCanvasProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const rafRef = useRef<number>(0);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
-    const container = containerRef.current;
-    if (!canvas || !container) return;
+    if (!canvas) return;
 
-    const width = container.offsetWidth;
-    if (width <= 0) {
-      // レイアウト未確定 → 少し待って再試行
-      rafRef.current = requestAnimationFrame(draw);
+    const container = containerRef.current;
+    if (!container) return;
+
+    const rect = container.getBoundingClientRect();
+    const width = Math.floor(rect.width);
+
+    if (width === 0) {
+      // コンテナ幅がまだ0の場合、リトライ
+      requestAnimationFrame(draw);
       return;
     }
 
@@ -45,97 +52,99 @@ export default function WaveformCanvas({
 
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
+
     ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, width, height);
 
     // 背景
     ctx.fillStyle = COLORS.surface;
     ctx.fillRect(0, 0, width, height);
 
-    // 中心線
-    ctx.strokeStyle = COLORS.centerLine;
+    // グリッド線
+    ctx.strokeStyle = COLORS.gridLine;
     ctx.lineWidth = 1;
-    ctx.setLineDash([4, 4]);
-    ctx.beginPath();
-    ctx.moveTo(0, height / 2);
-    ctx.lineTo(width, height / 2);
-    ctx.stroke();
-    ctx.setLineDash([]);
-
     const centerY = height / 2;
+    ctx.beginPath();
+    ctx.moveTo(0, centerY);
+    ctx.lineTo(width, centerY);
+    ctx.stroke();
 
-    if (realtimeData) {
-      const sliceWidth = width / realtimeData.length;
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      let x = 0;
-      for (let i = 0; i < realtimeData.length; i++) {
-        const y = centerY - realtimeData[i] * centerY;
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-        x += sliceWidth;
-      }
-      ctx.stroke();
-    } else if (peaks && peaks.positive.length > 0) {
-      ctx.fillStyle = color;
-      ctx.globalAlpha = 0.8;
-      const scaleX = width / peaks.positive.length;
-      for (let i = 0; i < peaks.positive.length; i++) {
-        const top = centerY - peaks.positive[i] * centerY;
-        const bottom = centerY - peaks.negative[i] * centerY;
-        ctx.fillRect(
-          i * scaleX,
-          top,
-          Math.max(scaleX, 1),
-          Math.max(bottom - top, 1)
-        );
+    // 波形描画関数
+    const drawWaveform = (p: WaveformPeaks, c: string, alpha: number = 1) => {
+      const numBins = p.positive.length;
+      if (numBins === 0) return;
+
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = c;
+
+      const binWidth = width / numBins;
+      for (let i = 0; i < numBins; i++) {
+        const x = i * binWidth;
+        const posH = p.positive[i] * centerY;
+        const negH = -p.negative[i] * centerY;
+        ctx.fillRect(x, centerY - posH, Math.max(binWidth - 0.5, 1), posH + negH);
       }
       ctx.globalAlpha = 1;
+    };
+
+    // メイン波形
+    if (peaks) {
+      drawWaveform(peaks, color);
     }
 
-    if (playbackProgress !== undefined && playbackProgress > 0) {
+    // オーバーレイ波形
+    if (overlayPeaks && overlayColor) {
+      drawWaveform(overlayPeaks, overlayColor, 0.5);
+    }
+
+    // プレイヘッド
+    if (peaks && duration > 0) {
+      const progress = currentTime / duration;
+      const playheadX = progress * width;
       ctx.strokeStyle = COLORS.playhead;
       ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.moveTo(playbackProgress * width, 0);
-      ctx.lineTo(playbackProgress * width, height);
+      ctx.moveTo(playheadX, 0);
+      ctx.lineTo(playheadX, height);
       ctx.stroke();
     }
+  }, [peaks, color, currentTime, duration, height, overlayPeaks, overlayColor]);
 
-    if (label) {
-      ctx.font = "12px system-ui, sans-serif";
-      ctx.fillStyle = color;
-      ctx.globalAlpha = 1;
-      ctx.fillText(label, 8, 18);
-    }
-  }, [peaks, realtimeData, color, label, playbackProgress, height]);
-
-  // データ変更時に描画
   useEffect(() => {
-    cancelAnimationFrame(rafRef.current);
-    rafRef.current = requestAnimationFrame(draw);
-    return () => cancelAnimationFrame(rafRef.current);
+    draw();
   }, [draw]);
 
-  // リサイズ時に再描画
+  // リサイズ対応
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
+
     const observer = new ResizeObserver(() => {
-      cancelAnimationFrame(rafRef.current);
-      rafRef.current = requestAnimationFrame(draw);
+      draw();
     });
     observer.observe(container);
     return () => observer.disconnect();
   }, [draw]);
 
+  const handleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!onSeek || !peaks || duration <= 0) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const ratio = x / rect.width;
+    onSeek(ratio * duration);
+  };
+
   return (
-    <div
-      ref={containerRef}
-      className="w-full rounded-lg overflow-hidden"
-      style={{ minHeight: height }}
-    >
-      <canvas ref={canvasRef} className="block" />
+    <div ref={containerRef} className="w-full" style={{ height }}>
+      <canvas
+        ref={canvasRef}
+        onClick={handleClick}
+        className="cursor-pointer rounded"
+        data-testid="waveform-canvas"
+        style={{ width: "100%", height: "100%" }}
+      />
     </div>
   );
 }

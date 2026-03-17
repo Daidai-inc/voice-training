@@ -13,7 +13,7 @@ export default function RealtimePitchDisplay({
   isActive,
 }: RealtimePitchDisplayProps) {
   const [currentPitch, setCurrentPitch] = useState<PitchPoint | null>(null);
-  const rafRef = useRef<number | null>(null);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     if (!analyserNode || !isActive) {
@@ -21,16 +21,14 @@ export default function RealtimePitchDisplay({
       return;
     }
 
-    const update = () => {
+    // 200msごとに検出（60fpsではなく5fps相当）
+    intervalRef.current = setInterval(() => {
       const pitch = detectPitchRealtime(analyserNode);
       setCurrentPitch(pitch);
-      rafRef.current = requestAnimationFrame(update);
-    };
-
-    rafRef.current = requestAnimationFrame(update);
+    }, 200);
 
     return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      if (intervalRef.current) clearInterval(intervalRef.current);
     };
   }, [analyserNode, isActive]);
 
@@ -49,18 +47,13 @@ export default function RealtimePitchDisplay({
         )}
       </div>
 
-      {/* ピッチのズレインジケータ */}
       {currentPitch && (
         <div className="flex-1">
           <div className="relative h-4 bg-gray-700 rounded-full overflow-hidden">
-            {/* 中心マーク */}
             <div className="absolute left-1/2 top-0 w-0.5 h-full bg-white/30" />
-            {/* ズレ表示 */}
             <div
-              className="absolute top-1 h-2 w-2 rounded-full bg-[var(--color-brand)] transition-all duration-75"
-              style={{
-                left: `${50 + currentPitch.cents}%`,
-              }}
+              className="absolute top-1 h-2 w-2 rounded-full bg-[var(--color-brand)] transition-all duration-150"
+              style={{ left: `${50 + currentPitch.cents}%` }}
             />
           </div>
           <div className="flex justify-between text-[10px] text-[var(--color-text-muted)] mt-0.5">

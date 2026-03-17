@@ -73,23 +73,28 @@ export default function TrackSection({
   // ファイルアップロード
   const handleFileLoaded = useCallback(
     async (file: File) => {
+      console.log(`[${title}] handleFileLoaded start:`, file.name);
       onBusy(true);
       setLoadingStatus("音声ファイルを読み込み中...");
       try {
         const ctx = await resume();
+        console.log(`[${title}] AudioContext ready, state:`, ctx.state);
         setLoadingStatus("音声データを処理中...");
         const buffer = await decodeAudioFile(file, ctx);
+        console.log(`[${title}] decoded:`, buffer.duration, 'sec', buffer.sampleRate, 'Hz');
         setLoadingStatus("波形を生成中...");
-        // 1フレーム待ってUIを更新させる
         await new Promise(r => requestAnimationFrame(r));
         setAudioBuffer(buffer);
         setFileName(file.name);
         onTrackReady(buffer, []);
-      } catch {
+        console.log(`[${title}] done`);
+      } catch (err) {
+        console.error(`[${title}] ERROR:`, err);
         alert("音声ファイルの読み込みに失敗しました。");
       } finally {
         setLoadingStatus(null);
         onBusy(false);
+        console.log(`[${title}] onBusy(false)`);
       }
     },
     [resume, onTrackReady, onBusy]

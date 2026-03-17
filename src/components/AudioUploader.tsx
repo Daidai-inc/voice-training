@@ -98,8 +98,12 @@ export default function AudioUploader({
         accept="audio/*"
         className="hidden"
         onChange={(e) => {
+          console.log('[AudioUploader] onChange fired, files:', e.target.files?.length);
           const file = e.target.files?.[0];
-          if (file) handleFile(file);
+          if (file) {
+            console.log('[AudioUploader] file:', file.name, file.size, file.type);
+            handleFile(file);
+          }
         }}
       />
 

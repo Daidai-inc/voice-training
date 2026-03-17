@@ -2,22 +2,22 @@ import { WaveformPeaks } from "@/types/audio";
 
 /**
  * AudioBufferから表示用のピークデータを生成する
- * 各ピクセルに対応するサンプル範囲のmin/maxを計算
  */
 export function extractPeaks(
   buffer: AudioBuffer,
   targetWidth: number
 ): WaveformPeaks {
   const channelData = buffer.getChannelData(0);
-  const samplesPerPixel = Math.floor(channelData.length / targetWidth);
-  const positive = new Float32Array(targetWidth);
-  const negative = new Float32Array(targetWidth);
+  const samplesPerPixel = Math.max(1, Math.floor(channelData.length / targetWidth));
+  const actualWidth = Math.min(targetWidth, channelData.length);
+  const positive = new Float32Array(actualWidth);
+  const negative = new Float32Array(actualWidth);
 
-  for (let i = 0; i < targetWidth; i++) {
+  for (let i = 0; i < actualWidth; i++) {
     const start = i * samplesPerPixel;
     const end = Math.min(start + samplesPerPixel, channelData.length);
-    let max = -1;
-    let min = 1;
+    let max = 0;
+    let min = 0;
 
     for (let j = start; j < end; j++) {
       const val = channelData[j];

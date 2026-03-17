@@ -1,28 +1,27 @@
 "use client";
 
-import { useRef, useCallback, useState } from "react";
+import { useCallback } from "react";
 import { SAMPLE_RATE } from "@/lib/constants";
 
-export function useAudioContext() {
-  const ctxRef = useRef<AudioContext | null>(null);
-  const [state, setState] = useState<AudioContextState>("suspended");
+let sharedContext: AudioContext | null = null;
 
-  const getContext = useCallback(() => {
-    if (!ctxRef.current) {
-      ctxRef.current = new AudioContext({ sampleRate: SAMPLE_RATE });
-      setState(ctxRef.current.state);
-    }
-    return ctxRef.current;
-  }, []);
+function getOrCreateContext(): AudioContext {
+  if (!sharedContext || sharedContext.state === "closed") {
+    sharedContext = new AudioContext({ sampleRate: SAMPLE_RATE });
+  }
+  return sharedContext;
+}
+
+export function useAudioContext() {
+  const getContext = useCallback(() => getOrCreateContext(), []);
 
   const resume = useCallback(async () => {
-    const ctx = getContext();
+    const ctx = getOrCreateContext();
     if (ctx.state === "suspended") {
       await ctx.resume();
-      setState(ctx.state);
     }
     return ctx;
-  }, [getContext]);
+  }, []);
 
-  return { audioContext: ctxRef.current, getContext, resume, state };
+  return { getContext, resume };
 }

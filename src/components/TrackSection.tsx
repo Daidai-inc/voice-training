@@ -40,7 +40,7 @@ export default function TrackSection({
   const [pitchData, setPitchData] = useState<PitchPoint[]>([]);
   const [pitchProgress, setPitchProgress] = useState<number | null>(null);
   const [showPitch, setShowPitch] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [loadingStatus, setLoadingStatus] = useState<string | null>(null);
 
   const { getContext, resume } = useAudioContext();
   const recorder = useAudioRecorder();
@@ -74,17 +74,21 @@ export default function TrackSection({
   const handleFileLoaded = useCallback(
     async (file: File) => {
       onBusy(true);
-      setLoading(true);
+      setLoadingStatus("音声ファイルを読み込み中...");
       try {
         const ctx = await resume();
+        setLoadingStatus("音声データを処理中...");
         const buffer = await decodeAudioFile(file, ctx);
+        setLoadingStatus("波形を生成中...");
+        // 1フレーム待ってUIを更新させる
+        await new Promise(r => requestAnimationFrame(r));
         setAudioBuffer(buffer);
         setFileName(file.name);
         onTrackReady(buffer, []);
       } catch {
         alert("音声ファイルの読み込みに失敗しました。");
       } finally {
-        setLoading(false);
+        setLoadingStatus(null);
         onBusy(false);
       }
     },
@@ -104,12 +108,16 @@ export default function TrackSection({
 
   // 録音停止
   const handleStopRecording = useCallback(async () => {
+    setLoadingStatus("録音データを処理中...");
     const buffer = await recorder.stopRecording();
     if (buffer) {
+      setLoadingStatus("波形を生成中...");
+      await new Promise(r => requestAnimationFrame(r));
       setAudioBuffer(buffer);
       setFileName("録音データ");
       onTrackReady(buffer, []);
     }
+    setLoadingStatus(null);
     onBusy(false);
   }, [recorder, onTrackReady, onBusy]);
 
@@ -120,7 +128,7 @@ export default function TrackSection({
     setPitchData([]);
     setShowPitch(false);
     setPitchProgress(null);
-    setLoading(false);
+    setLoadingStatus(null);
     player.stop();
     onTrackClear();
   }, [player, onTrackClear]);
@@ -153,7 +161,7 @@ export default function TrackSection({
         </div>
       )}
 
-      {!audioBuffer && !disabled && !loading && (
+      {!audioBuffer && !disabled && !loadingStatus && (
         <div className="space-y-3">
           <div className="flex gap-2">
             <button
@@ -204,14 +212,14 @@ export default function TrackSection({
         </div>
       )}
 
-      {loading && (
+      {loadingStatus && (
         <div className="space-y-2 py-2">
           <div className="flex items-center gap-2 text-sm text-[var(--color-text-muted)]">
             <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <circle cx="12" cy="12" r="10" strokeOpacity="0.3" />
               <path d="M12 2a10 10 0 0 1 10 10" strokeLinecap="round" />
             </svg>
-            音声ファイルを読み込み中...
+            {loadingStatus}
           </div>
           <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
             <div className="h-full bg-[var(--color-brand)] rounded-full animate-pulse" style={{ width: "60%" }} />

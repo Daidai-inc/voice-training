@@ -248,7 +248,10 @@ export default function TrackPanel({
           data-testid="file-input"
         />
         <button
-          onClick={() => fileInputRef.current?.click()}
+          onClick={async () => {
+            await getAudioContext(); // ユーザージェスチャー内でContextを起こす
+            fileInputRef.current?.click();
+          }}
           disabled={loading}
           className="px-3 py-1.5 text-xs rounded bg-white/10 hover:bg-white/20 transition disabled:opacity-50"
         >

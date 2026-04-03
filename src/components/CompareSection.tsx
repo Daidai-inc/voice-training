@@ -128,8 +128,8 @@ export default function CompareSection({
   }, [isPlaying, startMixPlayback]);
 
   const handleSeekTrack2 = useCallback((time: number) => {
-    // トラック2のクリック位置 → タイムライン上の位置に変換
-    const timelinePos = time + offset2;
+    // トラック2のクリック位置 → タイムライン上の位置に変換（負にならないようクランプ）
+    const timelinePos = Math.max(0, time + offset2);
     setStartFrom(timelinePos);
     if (isPlaying) {
       startMixPlayback(timelinePos);
@@ -152,6 +152,11 @@ export default function CompareSection({
     setCurve2(null);
     setScore(null);
   }, [track1, track2, stopMixPlayback]);
+
+  // offset変更時はスコアを無効化（グラフとスコアの矛盾を防ぐ）
+  useEffect(() => {
+    setScore(null);
+  }, [offset2]);
 
   // ピッチ解析実行
   const handleAnalyze = useCallback(async () => {

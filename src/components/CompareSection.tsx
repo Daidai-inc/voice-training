@@ -136,6 +136,11 @@ export default function CompareSection({
     if (gain2Ref.current) gain2Ref.current.gain.value = volume2;
   }, [volume2]);
 
+  // トラック差し替え時も再生停止
+  useEffect(() => {
+    stopMixPlayback();
+  }, [track1, track2, stopMixPlayback]);
+
   useEffect(() => {
     return () => stopMixPlayback();
   }, [stopMixPlayback]);
@@ -208,6 +213,7 @@ export default function CompareSection({
           height={120}
           overlayPeaks={peaks2}
           overlayColor={COLORS.reference}
+          overlayOffset={offset2}
           onSeek={(time) => {
             setStartFrom(time);
             if (isPlaying) startMixPlayback(time);

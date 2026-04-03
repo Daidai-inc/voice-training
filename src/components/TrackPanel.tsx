@@ -87,8 +87,11 @@ export default function TrackPanel({
       offsetRef.current = fromTime;
 
       source.onended = () => {
-        stopPlayback();
-        onTimeUpdate(0);
+        // 自然終了時のみ先頭にリセット（一時停止時はstopPlayback()が先にsourceRefをクリアする）
+        if (sourceRef.current === source) {
+          stopPlayback();
+          onTimeUpdate(0);
+        }
       };
 
       source.start(0, fromTime);

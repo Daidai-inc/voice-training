@@ -13,6 +13,7 @@ interface WaveformCanvasProps {
   onSeek?: (time: number) => void;
   overlayPeaks?: WaveformPeaks | null;
   overlayColor?: string;
+  overlayOffset?: number; // 秒単位のタイミングオフセット
 }
 
 export default function WaveformCanvas({
@@ -24,6 +25,7 @@ export default function WaveformCanvas({
   onSeek,
   overlayPeaks,
   overlayColor,
+  overlayOffset = 0,
 }: WaveformCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -69,17 +71,19 @@ export default function WaveformCanvas({
     ctx.lineTo(width, centerY);
     ctx.stroke();
 
-    // 波形描画関数
-    const drawWaveform = (p: WaveformPeaks, c: string, alpha: number = 1) => {
+    // 波形描画関数（offsetSec分だけ右にずらして描画）
+    const drawWaveform = (p: WaveformPeaks, c: string, alpha: number = 1, offsetSec: number = 0) => {
       const numBins = p.positive.length;
       if (numBins === 0) return;
 
       ctx.globalAlpha = alpha;
       ctx.fillStyle = c;
 
+      const offsetX = duration > 0 ? (offsetSec / duration) * width : 0;
       const binWidth = width / numBins;
       for (let i = 0; i < numBins; i++) {
-        const x = i * binWidth;
+        const x = i * binWidth + offsetX;
+        if (x + binWidth < 0 || x > width) continue;
         const posH = p.positive[i] * centerY;
         const negH = -p.negative[i] * centerY;
         ctx.fillRect(x, centerY - posH, Math.max(binWidth - 0.5, 1), posH + negH);
@@ -92,9 +96,9 @@ export default function WaveformCanvas({
       drawWaveform(peaks, color);
     }
 
-    // オーバーレイ波形
+    // オーバーレイ波形（overlayOffsetぶんずらして描画）
     if (overlayPeaks && overlayColor) {
-      drawWaveform(overlayPeaks, overlayColor, 0.5);
+      drawWaveform(overlayPeaks, overlayColor, 0.5, overlayOffset);
     }
 
     // プレイヘッド
@@ -108,7 +112,7 @@ export default function WaveformCanvas({
       ctx.lineTo(playheadX, height);
       ctx.stroke();
     }
-  }, [peaks, color, currentTime, duration, height, overlayPeaks, overlayColor]);
+  }, [peaks, color, currentTime, duration, height, overlayPeaks, overlayColor, overlayOffset]);
 
   useEffect(() => {
     draw();

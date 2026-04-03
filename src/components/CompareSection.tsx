@@ -62,18 +62,18 @@ export default function CompareSection({
     setIsPlaying(false);
   }, []);
 
-  const startMixPlayback = useCallback((fromTime?: number) => {
+  const startMixPlayback = useCallback(async (fromTime?: number) => {
     if (!track1 || !track2) return;
 
     stopMixPlayback();
 
-    const ctx = getAudioContext();
+    const ctx = await getAudioContext();
     const now = ctx.currentTime;
     const playFrom = fromTime ?? startFrom;
 
     // トラック1の再生開始位置
     const t1Start = Math.max(0, Math.min(playFrom, dur1));
-    const { source: s1, gain: g1 } = createPlaybackNodes(track1.buffer, volume1, 0);
+    const { source: s1, gain: g1 } = createPlaybackNodes(ctx, track1.buffer, volume1, 0);
     source1Ref.current = s1;
     gain1Ref.current = g1;
     if (t1Start < dur1) {
@@ -82,7 +82,7 @@ export default function CompareSection({
 
     // トラック2の再生開始位置（オフセット考慮）
     const t2ActualStart = playFrom - offset2;
-    const { source: s2, gain: g2 } = createPlaybackNodes(track2.buffer, volume2, 0);
+    const { source: s2, gain: g2 } = createPlaybackNodes(ctx, track2.buffer, volume2, 0);
     source2Ref.current = s2;
     gain2Ref.current = g2;
 
@@ -98,7 +98,7 @@ export default function CompareSection({
     setIsPlaying(true);
 
     const updateTime = () => {
-      const elapsed = getAudioContext().currentTime - startTimeRef.current;
+      const elapsed = ctx.currentTime - startTimeRef.current;
       if (elapsed <= maxDuration) {
         setCurrentTime(elapsed);
         rafRef.current = requestAnimationFrame(updateTime);

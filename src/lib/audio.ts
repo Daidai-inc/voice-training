@@ -3,18 +3,18 @@ import { WaveformPeaks } from "@/types/audio";
 // モジュールレベルのAudioContext（シングルトン）
 let audioContext: AudioContext | null = null;
 
-export function getAudioContext(): AudioContext {
+export async function getAudioContext(): Promise<AudioContext> {
   if (!audioContext) {
     audioContext = new AudioContext({ sampleRate: 44100 });
   }
   if (audioContext.state === "suspended") {
-    audioContext.resume();
+    await audioContext.resume();
   }
   return audioContext;
 }
 
 export async function decodeAudioFile(file: File): Promise<AudioBuffer> {
-  const ctx = getAudioContext();
+  const ctx = await getAudioContext();
   const arrayBuffer = await file.arrayBuffer();
   return ctx.decodeAudioData(arrayBuffer);
 }
@@ -42,13 +42,13 @@ export function extractPeaks(buffer: AudioBuffer, numBins: number): WaveformPeak
   return { positive, negative };
 }
 
-// 再生用のSourceNodeとGainNodeを作成
+// 再生用のSourceNodeとGainNodeを作成（呼び出し前にgetAudioContext()をawait済み前提）
 export function createPlaybackNodes(
+  ctx: AudioContext,
   buffer: AudioBuffer,
   volume: number,
   startTime: number
 ): { source: AudioBufferSourceNode; gain: GainNode } {
-  const ctx = getAudioContext();
   const source = ctx.createBufferSource();
   const gain = ctx.createGain();
 
@@ -88,7 +88,7 @@ export async function stopRecording(
         mediaRecorder.stream.getTracks().forEach((t) => t.stop());
         const blob = new Blob(chunks, { type: "audio/webm" });
         const arrayBuffer = await blob.arrayBuffer();
-        const ctx = getAudioContext();
+        const ctx = await getAudioContext();
         const buffer = await ctx.decodeAudioData(arrayBuffer);
         resolve(buffer);
       } catch (e) {

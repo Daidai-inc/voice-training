@@ -73,16 +73,16 @@ export default function TrackPanel({
 
   // 再生開始
   const startPlayback = useCallback(
-    (fromTime: number) => {
+    async (fromTime: number) => {
       if (!track) return;
 
       stopPlayback();
 
-      const { source, gain } = createPlaybackNodes(track.buffer, volume, fromTime);
+      const ctx = await getAudioContext();
+      const { source, gain } = createPlaybackNodes(ctx, track.buffer, volume, fromTime);
       sourceRef.current = source;
       gainRef.current = gain;
 
-      const ctx = getAudioContext();
       startTimeRef.current = ctx.currentTime;
       offsetRef.current = fromTime;
 
@@ -100,7 +100,7 @@ export default function TrackPanel({
       // 時間更新ループ
       const updateTime = () => {
         if (!sourceRef.current) return;
-        const elapsed = getAudioContext().currentTime - startTimeRef.current;
+        const elapsed = ctx.currentTime - startTimeRef.current;
         const newTime = offsetRef.current + elapsed;
         if (newTime <= track.duration) {
           onTimeUpdate(newTime);

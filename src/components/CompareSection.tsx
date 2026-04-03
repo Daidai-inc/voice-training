@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AudioTrack, WaveformPeaks, ViewMode, PitchCurve, VoiceScore } from "@/types/audio";
-import { formatTime, getAudioContext, createPlaybackNodes, extractPitchCurve, calcVoiceScore } from "@/lib/audio";
+import { formatTime, getAudioContext, createPlaybackNodes, extractPitchCurve, calcVoiceScore, extractVocals } from "@/lib/audio";
 import WaveformCanvas from "./WaveformCanvas";
 import PitchCurveCanvas from "./PitchCurveCanvas";
 import ScorePanel from "./ScorePanel";
@@ -36,6 +36,7 @@ export default function CompareSection({
   const [curve2, setCurve2] = useState<PitchCurve | null>(null);
   const [score, setScore] = useState<VoiceScore | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
+  const [vocalMode, setVocalMode] = useState(false);
 
   const source1Ref = useRef<AudioBufferSourceNode | null>(null);
   const source2Ref = useRef<AudioBufferSourceNode | null>(null);
@@ -156,16 +157,27 @@ export default function CompareSection({
   const handleAnalyze = useCallback(async () => {
     if (!track1 || !track2 || analyzing) return;
     setAnalyzing(true);
-    await new Promise<void>(resolve => setTimeout(() => {
-      const c1 = extractPitchCurve(track1.buffer);
-      const c2 = extractPitchCurve(track2.buffer);
-      setCurve1(c1);
-      setCurve2(c2);
-      setScore(calcVoiceScore(c1, c2, offset2));
-      resolve();
-    }, 50));
-    setAnalyzing(false);
-  }, [track1, track2, offset2, analyzing]);
+    try {
+      let buf1 = track1.buffer;
+      let buf2 = track2.buffer;
+      if (vocalMode) {
+        [buf1, buf2] = await Promise.all([
+          extractVocals(track1.buffer),
+          extractVocals(track2.buffer),
+        ]);
+      }
+      await new Promise<void>(resolve => setTimeout(() => {
+        const c1 = extractPitchCurve(buf1);
+        const c2 = extractPitchCurve(buf2);
+        setCurve1(c1);
+        setCurve2(c2);
+        setScore(calcVoiceScore(c1, c2, offset2));
+        resolve();
+      }, 50));
+    } finally {
+      setAnalyzing(false);
+    }
+  }, [track1, track2, offset2, analyzing, vocalMode]);
 
   useEffect(() => {
     return () => stopMixPlayback();
@@ -254,7 +266,7 @@ export default function CompareSection({
               if (isPlaying) startMixPlayback(time);
             }}
           />
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             <button
               onClick={handleAnalyze}
               disabled={analyzing}
@@ -262,8 +274,20 @@ export default function CompareSection({
             >
               {analyzing ? "解析中..." : curve1 ? "再解析" : "ピッチ解析を実行"}
             </button>
+            <button
+              onClick={() => setVocalMode(v => !v)}
+              className={`px-3 py-1.5 text-xs rounded transition ${
+                vocalMode ? "bg-white/25 ring-1 ring-white/40" : "bg-white/5 hover:bg-white/10"
+              }`}
+            >
+              {vocalMode ? "🎤 ボーカルのみ ON" : "🎤 ボーカルのみ"}
+            </button>
             <span className="text-[10px]" style={{ color: "var(--color-text-muted)" }}>
-              {!curve1 && "解析するとピッチカーブとスコアが表示されます"}
+              {!curve1
+                ? "解析するとピッチカーブとスコアが表示されます"
+                : vocalMode
+                ? "ボーカル帯域(80Hz〜5kHz)で比較中"
+                : ""}
             </span>
           </div>
           {score && (

@@ -283,6 +283,46 @@ export function calcVoiceScore(
   };
 }
 
+// ボーカル抽出: センターチャンネル(L+R)/2 + バンドパスフィルタ(80Hz〜5kHz)
+export async function extractVocals(buffer: AudioBuffer): Promise<AudioBuffer> {
+  const { sampleRate, length } = buffer;
+
+  // ステレオ→センターチャンネル(L+R)/2でボーカル帯域を強調
+  const centerData = new Float32Array(length);
+  const left = buffer.getChannelData(0);
+  if (buffer.numberOfChannels > 1) {
+    const right = buffer.getChannelData(1);
+    for (let i = 0; i < length; i++) {
+      centerData[i] = (left[i] + right[i]) / 2;
+    }
+  } else {
+    centerData.set(left);
+  }
+
+  const mono = new AudioBuffer({ length, sampleRate, numberOfChannels: 1 });
+  mono.copyToChannel(centerData, 0);
+
+  // OfflineAudioContext でバンドパスフィルタ適用
+  const offCtx = new OfflineAudioContext(1, length, sampleRate);
+  const src = offCtx.createBufferSource();
+  src.buffer = mono;
+
+  const hp = offCtx.createBiquadFilter();
+  hp.type = "highpass";
+  hp.frequency.value = 80; // 低音域カット（ベース・キック）
+
+  const lp = offCtx.createBiquadFilter();
+  lp.type = "lowpass";
+  lp.frequency.value = 5000; // 高音域カット（シンバル等）
+
+  src.connect(hp);
+  hp.connect(lp);
+  lp.connect(offCtx.destination);
+  src.start(0);
+
+  return offCtx.startRendering();
+}
+
 export function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60);
   const s = Math.floor(seconds % 60);

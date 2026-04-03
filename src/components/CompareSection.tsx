@@ -36,6 +36,7 @@ export default function CompareSection({
   const [curve2, setCurve2] = useState<PitchCurve | null>(null);
   const [score, setScore] = useState<VoiceScore | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
+  const [analyzeProgress, setAnalyzeProgress] = useState(0);
   const [vocalMode, setVocalMode] = useState(false);
 
   const source1Ref = useRef<AudioBufferSourceNode | null>(null);
@@ -162,6 +163,7 @@ export default function CompareSection({
   const handleAnalyze = useCallback(async () => {
     if (!track1 || !track2 || analyzing) return;
     setAnalyzing(true);
+    setAnalyzeProgress(0);
     try {
       let buf1 = track1.buffer;
       let buf2 = track2.buffer;
@@ -171,16 +173,14 @@ export default function CompareSection({
           extractVocals(track2.buffer),
         ]);
       }
-      await new Promise<void>(resolve => setTimeout(() => {
-        const c1 = extractPitchCurve(buf1);
-        const c2 = extractPitchCurve(buf2);
-        setCurve1(c1);
-        setCurve2(c2);
-        setScore(calcVoiceScore(c1, c2, offset2));
-        resolve();
-      }, 50));
+      const c1 = await extractPitchCurve(buf1, p => setAnalyzeProgress(Math.round(p / 2)));
+      const c2 = await extractPitchCurve(buf2, p => setAnalyzeProgress(50 + Math.round(p / 2)));
+      setCurve1(c1);
+      setCurve2(c2);
+      setScore(calcVoiceScore(c1, c2, offset2));
     } finally {
       setAnalyzing(false);
+      setAnalyzeProgress(0);
     }
   }, [track1, track2, offset2, analyzing, vocalMode]);
 
@@ -277,7 +277,7 @@ export default function CompareSection({
               disabled={analyzing}
               className="px-3 py-1.5 text-xs rounded bg-white/10 hover:bg-white/20 transition disabled:opacity-50"
             >
-              {analyzing ? "解析中..." : curve1 ? "再解析" : "ピッチ解析を実行"}
+              {analyzing ? `解析中... ${analyzeProgress}%` : curve1 ? "再解析" : "ピッチ解析を実行"}
             </button>
             <button
               onClick={() => setVocalMode(v => !v)}

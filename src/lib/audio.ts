@@ -168,21 +168,32 @@ export function hzToCents(hz: number): number {
   return 1200 * Math.log2(hz / 440);
 }
 
-// ピッチカーブを抽出（ACFベース、hopSize=512）
-export function extractPitchCurve(buffer: AudioBuffer): PitchCurve {
+// ピッチカーブを抽出（ACFベース）
+// hopSize=2048, windowSize=1024 で軽量化（5分音源で約3秒）
+export async function extractPitchCurve(
+  buffer: AudioBuffer,
+  onProgress?: (pct: number) => void
+): Promise<PitchCurve> {
   const data = buffer.getChannelData(0);
   const sampleRate = buffer.sampleRate;
-  const hopSize = 512;
-  const windowSize = 2048;
+  const hopSize = 2048;  // 512→2048: フレーム数1/4
+  const windowSize = 1024; // 2048→1024: 各フレーム計算量1/2
   const numFrames = Math.max(0, Math.floor((data.length - windowSize) / hopSize));
 
   const pitches = new Float32Array(numFrames);
   const times = new Float32Array(numFrames);
 
+  // チャンク処理でUIをブロックしない（100フレームごとにyield）
+  const CHUNK = 100;
   for (let i = 0; i < numFrames; i++) {
     times[i] = (i * hopSize) / sampleRate;
     pitches[i] = detectPitchACF(data, i * hopSize, windowSize, sampleRate);
+    if (i % CHUNK === 0) {
+      onProgress?.(Math.round((i / numFrames) * 100));
+      await new Promise<void>(r => setTimeout(r, 0)); // UIスレッドを解放
+    }
   }
+  onProgress?.(100);
 
   return { pitches, times, hopSize, sampleRate };
 }

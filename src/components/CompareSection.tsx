@@ -350,7 +350,8 @@ export default function CompareSection({
           <button
             onClick={() => {
               setStartFrom(selectionStart!);
-              startMixPlayback(selectionStart!, loopEnabled);
+              // ループOFF時も selectionEnd で止めるため loopMode=true で呼ぶ（ループ折り返しはloopRefで制御）
+              startMixPlayback(selectionStart!, true);
             }}
             className="px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 transition"
           >

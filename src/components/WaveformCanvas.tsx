@@ -42,6 +42,7 @@ export default function WaveformCanvas({
   // ドラッグ状態
   const dragRef = useRef<{ startX: number; startOffset: number } | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const gestureOwnerRef = useRef(false); // このインスタンスがmousedownを受けたか
 
   // 範囲選択状態
   const selectionDragRef = useRef<{ startX: number; startTime: number } | null>(null);
@@ -187,6 +188,7 @@ export default function WaveformCanvas({
     const x = e.clientX - rect.left;
     const clickTime = (x / rect.width) * duration;
     dragMovedRef.current = false;
+    gestureOwnerRef.current = true; // このインスタンスがジェスチャーを開始
 
     if (onOverlayOffsetChange) {
       dragRef.current = { startX: e.clientX, startOffset: overlayOffset };
@@ -228,6 +230,10 @@ export default function WaveformCanvas({
   }, [onOverlayOffsetChange, onSelectionChange, duration]);
 
   const handleMouseUp = useCallback((e: MouseEvent) => {
+    // このインスタンスがジェスチャーを開始していない場合は無視（P1修正）
+    if (!gestureOwnerRef.current) return;
+    gestureOwnerRef.current = false;
+
     // ドラッグ距離が小さければシークとして扱う
     if (!dragMovedRef.current && onSeek && peaks) {
       const canvas = canvasRef.current;

@@ -4,6 +4,10 @@ import { WaveformPeaks, PitchCurve, VoiceScore, VibratoInfo } from "@/types/audi
 let audioContext: AudioContext | null = null;
 
 export async function getAudioContext(): Promise<AudioContext> {
+  // closedになったContextは再生成（定期的なロード失敗の根本原因）
+  if (audioContext && audioContext.state === "closed") {
+    audioContext = null;
+  }
   if (!audioContext) {
     audioContext = new AudioContext({ sampleRate: 44100 });
   }
@@ -14,8 +18,11 @@ export async function getAudioContext(): Promise<AudioContext> {
 }
 
 export async function decodeAudioFile(file: File): Promise<AudioBuffer> {
-  const ctx = await getAudioContext();
+  // arrayBuffer取得を先に行う（AudioContext生成前に済ませることでジェスチャーコンテキストを温存）
+  // Autoplay Policy: getAudioContext()のresume()はユーザージェスチャーの同期スタック内である必要がある
+  // file.arrayBuffer()を後に回すとSafari等でContextが再suspendされる
   const arrayBuffer = await file.arrayBuffer();
+  const ctx = await getAudioContext();
   return ctx.decodeAudioData(arrayBuffer);
 }
 

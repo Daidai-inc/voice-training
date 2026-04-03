@@ -1,9 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AudioTrack, WaveformPeaks, ViewMode } from "@/types/audio";
-import { formatTime, getAudioContext, createPlaybackNodes } from "@/lib/audio";
+import { AudioTrack, WaveformPeaks, ViewMode, PitchCurve, VoiceScore } from "@/types/audio";
+import { formatTime, getAudioContext, createPlaybackNodes, extractPitchCurve, calcVoiceScore } from "@/lib/audio";
 import WaveformCanvas from "./WaveformCanvas";
+import PitchCurveCanvas from "./PitchCurveCanvas";
+import ScorePanel from "./ScorePanel";
 import { COLORS } from "@/lib/constants";
 
 interface CompareSectionProps {
@@ -27,7 +29,13 @@ export default function CompareSection({
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [offset2, setOffset2] = useState(0);
-  const [startFrom, setStartFrom] = useState(0); // 再生開始位置（秒）
+  const [startFrom, setStartFrom] = useState(0);
+
+  // ピッチ解析
+  const [curve1, setCurve1] = useState<PitchCurve | null>(null);
+  const [curve2, setCurve2] = useState<PitchCurve | null>(null);
+  const [score, setScore] = useState<VoiceScore | null>(null);
+  const [analyzing, setAnalyzing] = useState(false);
 
   const source1Ref = useRef<AudioBufferSourceNode | null>(null);
   const source2Ref = useRef<AudioBufferSourceNode | null>(null);
@@ -136,10 +144,28 @@ export default function CompareSection({
     if (gain2Ref.current) gain2Ref.current.gain.value = volume2;
   }, [volume2]);
 
-  // トラック差し替え時も再生停止
+  // トラック差し替え時も再生停止・ピッチ解析リセット
   useEffect(() => {
     stopMixPlayback();
+    setCurve1(null);
+    setCurve2(null);
+    setScore(null);
   }, [track1, track2, stopMixPlayback]);
+
+  // ピッチ解析実行
+  const handleAnalyze = useCallback(async () => {
+    if (!track1 || !track2 || analyzing) return;
+    setAnalyzing(true);
+    await new Promise<void>(resolve => setTimeout(() => {
+      const c1 = extractPitchCurve(track1.buffer);
+      const c2 = extractPitchCurve(track2.buffer);
+      setCurve1(c1);
+      setCurve2(c2);
+      setScore(calcVoiceScore(c1, c2, offset2));
+      resolve();
+    }, 50));
+    setAnalyzing(false);
+  }, [track1, track2, offset2, analyzing]);
 
   useEffect(() => {
     return () => stopMixPlayback();
@@ -163,22 +189,17 @@ export default function CompareSection({
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-sm font-medium">比較</h3>
         <div className="flex gap-1">
-          <button
-            onClick={() => setViewMode("side-by-side")}
-            className={`px-2 py-1 text-xs rounded transition ${
-              viewMode === "side-by-side" ? "bg-white/20" : "bg-white/5 hover:bg-white/10"
-            }`}
-          >
-            並列
-          </button>
-          <button
-            onClick={() => setViewMode("overlay")}
-            className={`px-2 py-1 text-xs rounded transition ${
-              viewMode === "overlay" ? "bg-white/20" : "bg-white/5 hover:bg-white/10"
-            }`}
-          >
-            重ね合わせ
-          </button>
+          {(["side-by-side", "overlay", "pitch"] as ViewMode[]).map((mode) => (
+            <button
+              key={mode}
+              onClick={() => setViewMode(mode)}
+              className={`px-2 py-1 text-xs rounded transition ${
+                viewMode === mode ? "bg-white/20" : "bg-white/5 hover:bg-white/10"
+              }`}
+            >
+              {mode === "side-by-side" ? "並列" : mode === "overlay" ? "重ね合わせ" : "ピッチ"}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -204,7 +225,7 @@ export default function CompareSection({
             onSeek={handleSeekTrack2}
           />
         </div>
-      ) : (
+      ) : viewMode === "overlay" ? (
         <WaveformCanvas
           peaks={peaks1}
           color={COLORS.brand}
@@ -219,6 +240,38 @@ export default function CompareSection({
             if (isPlaying) startMixPlayback(time);
           }}
         />
+      ) : (
+        <div className="space-y-3">
+          <PitchCurveCanvas
+            curve1={curve1}
+            curve2={curve2}
+            offset2Sec={offset2}
+            currentTime={currentTime}
+            duration={maxDuration}
+            height={160}
+            onSeek={(time) => {
+              setStartFrom(time);
+              if (isPlaying) startMixPlayback(time);
+            }}
+          />
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleAnalyze}
+              disabled={analyzing}
+              className="px-3 py-1.5 text-xs rounded bg-white/10 hover:bg-white/20 transition disabled:opacity-50"
+            >
+              {analyzing ? "解析中..." : curve1 ? "再解析" : "ピッチ解析を実行"}
+            </button>
+            <span className="text-[10px]" style={{ color: "var(--color-text-muted)" }}>
+              {!curve1 && "解析するとピッチカーブとスコアが表示されます"}
+            </span>
+          </div>
+          {score && (
+            <div className="p-3 rounded" style={{ backgroundColor: "var(--color-surface-light)" }}>
+              <ScorePanel score={score} />
+            </div>
+          )}
+        </div>
       )}
 
       {/* 再生コントロール */}

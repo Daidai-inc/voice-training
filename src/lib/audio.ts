@@ -1,4 +1,4 @@
-import { WaveformPeaks } from "@/types/audio";
+import { WaveformPeaks, PitchCurve, VoiceScore, VibratoInfo } from "@/types/audio";
 
 // モジュールレベルのAudioContext（シングルトン）
 let audioContext: AudioContext | null = null;
@@ -160,6 +160,127 @@ function detectPitchACF(
     return sampleRate / bestPeriod;
   }
   return 0;
+}
+
+// ピッチをHzからセントに変換（A4=440Hz基準）
+export function hzToCents(hz: number): number {
+  if (hz <= 0) return 0;
+  return 1200 * Math.log2(hz / 440);
+}
+
+// ピッチカーブを抽出（ACFベース、hopSize=512）
+export function extractPitchCurve(buffer: AudioBuffer): PitchCurve {
+  const data = buffer.getChannelData(0);
+  const sampleRate = buffer.sampleRate;
+  const hopSize = 512;
+  const windowSize = 2048;
+  const numFrames = Math.max(0, Math.floor((data.length - windowSize) / hopSize));
+
+  const pitches = new Float32Array(numFrames);
+  const times = new Float32Array(numFrames);
+
+  for (let i = 0; i < numFrames; i++) {
+    times[i] = (i * hopSize) / sampleRate;
+    pitches[i] = detectPitchACF(data, i * hopSize, windowSize, sampleRate);
+  }
+
+  return { pitches, times, hopSize, sampleRate };
+}
+
+// ビブラート検出（ピッチカーブの周期振動を4〜7Hzで探す）
+export function detectVibrato(curve: PitchCurve): VibratoInfo {
+  const voiced = curve.pitches.filter(p => p > 0);
+  if (voiced.length < 20) return { detected: false, rate: 0, depth: 0 };
+
+  const hopSec = curve.hopSize / curve.sampleRate;
+  const cents = Array.from(curve.pitches).map(p => p > 0 ? hzToCents(p) : null);
+
+  // 有声区間の移動平均との差分でビブラート成分を抽出
+  const window = 10;
+  const deviations: number[] = [];
+  for (let i = window; i < cents.length - window; i++) {
+    const c = cents[i];
+    if (c === null) continue;
+    let sum = 0, count = 0;
+    for (let j = i - window; j <= i + window; j++) {
+      if (cents[j] !== null) { sum += cents[j]!; count++; }
+    }
+    deviations.push(c - sum / count);
+  }
+
+  if (deviations.length < 10) return { detected: false, rate: 0, depth: 0 };
+
+  // ゼロクロス数からビブラートレートを推定
+  let crossings = 0;
+  for (let i = 1; i < deviations.length; i++) {
+    if (deviations[i - 1] * deviations[i] < 0) crossings++;
+  }
+  const rate = (crossings / 2) / (deviations.length * hopSec);
+  const depth = Math.max(...deviations.map(Math.abs));
+
+  const detected = rate >= 4 && rate <= 7 && depth >= 0.5;
+  return { detected, rate: +rate.toFixed(1), depth: +depth.toFixed(1) };
+}
+
+// 2トラックのピッチカーブからスコアを算出
+export function calcVoiceScore(
+  curve1: PitchCurve,
+  curve2: PitchCurve,
+  offset2Sec: number = 0
+): VoiceScore {
+  // ピッチ精度: 両トラックの有声フレームのセント差が±5以内の割合
+  let matchCount = 0, compareCount = 0;
+  const centDiffs: number[] = [];
+
+  for (let i = 0; i < curve2.pitches.length; i++) {
+    const t2 = curve2.times[i] + offset2Sec;
+    const p2 = curve2.pitches[i];
+    if (p2 <= 0) continue;
+
+    // curve1の対応フレームを探す
+    const idx1 = Math.round((t2 * curve1.sampleRate) / curve1.hopSize);
+    if (idx1 < 0 || idx1 >= curve1.pitches.length) continue;
+    const p1 = curve1.pitches[idx1];
+    if (p1 <= 0) continue;
+
+    const diff = Math.abs(hzToCents(p2) - hzToCents(p1));
+    centDiffs.push(diff);
+    if (diff <= 50) matchCount++; // ±50セント（半音以内）
+    compareCount++;
+  }
+
+  const pitchAccuracy = compareCount > 0 ? Math.round((matchCount / compareCount) * 100) : 0;
+
+  // 安定性: ピッチカーブの分散が小さいほど高スコア
+  const voiced2 = Array.from(curve2.pitches).filter(p => p > 0).map(hzToCents);
+  let stability = 0;
+  if (voiced2.length > 1) {
+    const mean = voiced2.reduce((a, b) => a + b, 0) / voiced2.length;
+    const variance = voiced2.reduce((a, b) => a + (b - mean) ** 2, 0) / voiced2.length;
+    stability = Math.max(0, Math.round(100 - Math.sqrt(variance) / 2));
+  }
+
+  // タイミング: 有声/無声の遷移タイミングが揃っているか
+  const voiced1Ratio = curve1.pitches.filter(p => p > 0).length / curve1.pitches.length;
+  const voiced2Ratio = curve2.pitches.filter(p => p > 0).length / curve2.pitches.length;
+  const timing = Math.round(100 - Math.abs(voiced1Ratio - voiced2Ratio) * 200);
+
+  // 音域: curve2の音域幅をcurve1と比較
+  const validP1 = Array.from(curve1.pitches).filter(p => p > 0);
+  const validP2 = Array.from(curve2.pitches).filter(p => p > 0);
+  const range1 = validP1.length > 0 ? hzToCents(Math.max(...validP1)) - hzToCents(Math.min(...validP1)) : 0;
+  const range2 = validP2.length > 0 ? hzToCents(Math.max(...validP2)) - hzToCents(Math.min(...validP2)) : 0;
+  const range = range1 > 0 ? Math.min(100, Math.round((range2 / range1) * 100)) : 0;
+
+  const vibrato = detectVibrato(curve2);
+
+  return {
+    pitchAccuracy: Math.max(0, Math.min(100, pitchAccuracy)),
+    stability: Math.max(0, Math.min(100, stability)),
+    timing: Math.max(0, Math.min(100, timing)),
+    range: Math.max(0, Math.min(100, range)),
+    vibrato,
+  };
 }
 
 export function formatTime(seconds: number): string {

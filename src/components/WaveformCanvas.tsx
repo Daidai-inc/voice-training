@@ -177,23 +177,24 @@ export default function WaveformCanvas({
     return () => observer.disconnect();
   }, [draw]);
 
-  // マウスダウン: オフセットドラッグ or 範囲選択 or シーク
+  const dragMovedRef = useRef(false); // 実際にドラッグ移動したか
+
+  // マウスダウン
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
     if (!canvas || duration <= 0) return;
     const rect = canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const clickTime = (x / rect.width) * duration;
+    dragMovedRef.current = false;
 
     if (onOverlayOffsetChange) {
-      // overlayドラッグモード
       dragRef.current = { startX: e.clientX, startOffset: overlayOffset };
       setIsDragging(true);
       return;
     }
 
     if (onSelectionChange) {
-      // 範囲選択モード
       selectionDragRef.current = { startX: x, startTime: clickTime };
       return;
     }
@@ -205,6 +206,7 @@ export default function WaveformCanvas({
       if (!canvas || duration <= 0) return;
       const rect = canvas.getBoundingClientRect();
       const dx = e.clientX - dragRef.current.startX;
+      if (Math.abs(dx) > 3) dragMovedRef.current = true;
       const deltaSec = (dx / rect.width) * duration;
       const newOffset = +(dragRef.current.startOffset + deltaSec).toFixed(2);
       onOverlayOffsetChange(newOffset);
@@ -215,20 +217,32 @@ export default function WaveformCanvas({
       if (!canvas || duration <= 0) return;
       const rect = canvas.getBoundingClientRect();
       const x = e.clientX - rect.left;
-      const currentTime = Math.max(0, Math.min((x / rect.width) * duration, duration));
-      const startTime = selectionDragRef.current.startTime;
+      const dx = x - selectionDragRef.current.startX;
+      if (Math.abs(dx) > 5) dragMovedRef.current = true;
+      const t = Math.max(0, Math.min((x / rect.width) * duration, duration));
       onSelectionChange(
-        Math.min(startTime, currentTime),
-        Math.max(startTime, currentTime)
+        Math.min(selectionDragRef.current.startTime, t),
+        Math.max(selectionDragRef.current.startTime, t)
       );
     }
   }, [onOverlayOffsetChange, onSelectionChange, duration]);
 
-  const handleMouseUp = useCallback(() => {
+  const handleMouseUp = useCallback((e: MouseEvent) => {
+    // ドラッグ距離が小さければシークとして扱う
+    if (!dragMovedRef.current && onSeek && peaks) {
+      const canvas = canvasRef.current;
+      if (canvas && duration > 0) {
+        const rect = canvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        if (x >= 0 && x <= rect.width) {
+          onSeek((x / rect.width) * duration);
+        }
+      }
+    }
     dragRef.current = null;
     selectionDragRef.current = null;
     setIsDragging(false);
-  }, []);
+  }, [onSeek, peaks, duration]);
 
   useEffect(() => {
     window.addEventListener("mousemove", handleMouseMove);
@@ -239,23 +253,10 @@ export default function WaveformCanvas({
     };
   }, [handleMouseMove, handleMouseUp]);
 
-  const handleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    // ドラッグ後はシーク不要
-    if (isDragging) return;
-    if (onOverlayOffsetChange) return; // ドラッグモード時はシーク無効
-    if (onSelectionChange) return; // 選択モード時はシーク無効
-    if (!onSeek || !peaks || duration <= 0) return;
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    onSeek((x / rect.width) * duration);
-  };
-
   const cursor = onOverlayOffsetChange
     ? isDragging ? "grabbing" : "grab"
     : onSelectionChange
-    ? "text"
+    ? "crosshair"
     : "pointer";
 
   return (
@@ -263,7 +264,6 @@ export default function WaveformCanvas({
       <canvas
         ref={canvasRef}
         onMouseDown={handleMouseDown}
-        onClick={handleClick}
         className="rounded"
         data-testid="waveform-canvas"
         style={{ width: "100%", height: "100%", cursor }}

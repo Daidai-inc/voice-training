@@ -166,6 +166,9 @@ export default function CompareSection({
   // offset変更時スコアリセット
   useEffect(() => { setScore(null); }, [offset2]);
 
+  // vocalMode切替時に古い解析結果をクリア（ラベルと内容の不一致防止）
+  useEffect(() => { setCurve1(null); setCurve2(null); setScore(null); }, [vocalMode]);
+
   // ピッチ解析
   const handleAnalyze = useCallback(async () => {
     if (!track1 || !track2 || analyzing) return;

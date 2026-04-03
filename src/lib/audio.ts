@@ -278,9 +278,9 @@ export function calcVoiceScore(
     stability = Math.max(0, Math.round(100 - Math.sqrt(variance) / 2));
   }
 
-  // タイミング: 有声/無声の遷移タイミングが揃っているか
-  const voiced1Ratio = curve1.pitches.filter(p => p > 0).length / curve1.pitches.length;
-  const voiced2Ratio = curve2.pitches.filter(p => p > 0).length / curve2.pitches.length;
+  // タイミング: 有声/無声の遷移タイミングが揃っているか（長さ0の場合はNaN防止）
+  const voiced1Ratio = curve1.pitches.length > 0 ? curve1.pitches.filter(p => p > 0).length / curve1.pitches.length : 0;
+  const voiced2Ratio = curve2.pitches.length > 0 ? curve2.pitches.filter(p => p > 0).length / curve2.pitches.length : 0;
   const timing = Math.round(100 - Math.abs(voiced1Ratio - voiced2Ratio) * 200);
 
   // 音域: curve2の音域幅をcurve1と比較

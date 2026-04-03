@@ -243,20 +243,38 @@ export default function CompareSection({
           />
         </div>
       ) : viewMode === "overlay" ? (
-        <WaveformCanvas
-          peaks={peaks1}
-          color={COLORS.brand}
-          currentTime={currentTime}
-          duration={maxDuration}
-          height={120}
-          overlayPeaks={peaks2}
-          overlayColor={COLORS.reference}
-          overlayOffset={offset2}
-          onSeek={(time) => {
-            setStartFrom(time);
-            if (isPlaying) startMixPlayback(time);
-          }}
-        />
+        <div className="space-y-1">
+          <div className="text-[10px] flex items-center gap-2 px-1" style={{ color: "var(--color-text-muted)" }}>
+            <span style={{ color: COLORS.brand }}>■</span> お手本（固定）
+            <span style={{ color: COLORS.reference }} className="ml-2">■</span> 自分の声
+            <span className="ml-auto font-mono">
+              トラック2: {offset2 >= 0 ? "+" : ""}{offset2.toFixed(2)}秒
+              {offset2 !== 0 && (
+                <button
+                  onClick={() => setOffset2(0)}
+                  className="ml-2 px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/20 transition text-[9px]"
+                >リセット</button>
+              )}
+            </span>
+          </div>
+          <WaveformCanvas
+            peaks={peaks1}
+            color={COLORS.brand}
+            currentTime={currentTime}
+            duration={maxDuration}
+            height={140}
+            overlayPeaks={peaks2}
+            overlayColor={COLORS.reference}
+            overlayOffset={offset2}
+            onOverlayOffsetChange={(newOffset) => {
+              setOffset2(newOffset);
+              if (isPlaying) startMixPlayback(currentTime);
+            }}
+          />
+          <p className="text-[10px] text-center" style={{ color: "var(--color-text-muted)" }}>
+            青い波形をドラッグしてタイミングを合わせる
+          </p>
+        </div>
       ) : (
         <div className="space-y-3">
           <PitchCurveCanvas
@@ -330,16 +348,26 @@ export default function CompareSection({
         )}
       </div>
 
-      {/* タイミング調整 */}
+      {/* タイミング調整（並列ビュー以外でも使える補助パネル） */}
       <div className="mt-3 p-3 rounded" style={{ backgroundColor: "var(--color-surface-light)" }}>
         <div className="flex items-center justify-between mb-2">
           <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>
             トラック2 タイミング調整
+            {viewMode === "overlay" && (
+              <span className="ml-2 text-[10px] opacity-60">（波形ドラッグでも調整可）</span>
+            )}
           </span>
           <div className="flex items-center gap-2">
-            <span className="text-xs font-mono" style={{ color: "var(--color-text-muted)" }}>
-              {offset2 >= 0 ? "+" : ""}{offset2.toFixed(1)}秒
-            </span>
+            {/* 数値直接入力 */}
+            <input
+              type="number"
+              step={0.01}
+              value={offset2}
+              onChange={(e) => setOffset2(parseFloat(e.target.value) || 0)}
+              className="w-20 text-xs font-mono text-center rounded px-1 py-0.5 bg-white/10 outline-none"
+              style={{ color: "var(--color-text-muted)" }}
+            />
+            <span className="text-[10px]" style={{ color: "var(--color-text-muted)" }}>秒</span>
             {offset2 !== 0 && (
               <button
                 onClick={() => setOffset2(0)}
@@ -352,37 +380,37 @@ export default function CompareSection({
           </div>
         </div>
 
-        {/* 粗調整 */}
+        {/* スライダー */}
         <div className="flex items-center gap-2 mb-2">
-          <span className="text-[10px] w-12" style={{ color: "var(--color-text-muted)" }}>粗調整</span>
+          <span className="text-[10px] w-12" style={{ color: "var(--color-text-muted)" }}>スライダー</span>
           <input
             type="range"
             min={-Math.max(dur1, dur2)}
             max={Math.max(dur1, dur2)}
-            step={1}
+            step={0.01}
             value={offset2}
             onChange={(e) => setOffset2(parseFloat(e.target.value))}
             className="flex-1 h-1 accent-white"
           />
         </div>
 
-        {/* 細調整 */}
+        {/* ボタン微調整 */}
         <div className="flex items-center gap-2">
-          <span className="text-[10px] w-12" style={{ color: "var(--color-text-muted)" }}>細調整</span>
-          <div className="flex gap-1">
-            {[-1, -0.5, -0.1].map((v) => (
+          <span className="text-[10px] w-12" style={{ color: "var(--color-text-muted)" }}>微調整</span>
+          <div className="flex gap-1 flex-wrap">
+            {[-1, -0.1, -0.01].map((v) => (
               <button
                 key={v}
-                onClick={() => setOffset2((prev) => +(prev + v).toFixed(1))}
+                onClick={() => setOffset2((prev) => +parseFloat((prev + v).toFixed(2)))}
                 className="px-2 py-0.5 text-[10px] rounded bg-white/5 hover:bg-white/15 transition"
               >
                 {v}s
               </button>
             ))}
-            {[+0.1, +0.5, +1].map((v) => (
+            {[+0.01, +0.1, +1].map((v) => (
               <button
                 key={v}
-                onClick={() => setOffset2((prev) => +(prev + v).toFixed(1))}
+                onClick={() => setOffset2((prev) => +parseFloat((prev + v).toFixed(2)))}
                 className="px-2 py-0.5 text-[10px] rounded bg-white/5 hover:bg-white/15 transition"
               >
                 +{v}s

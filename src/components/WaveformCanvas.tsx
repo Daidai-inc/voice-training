@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, useState } from "react";
 import { WaveformPeaks } from "@/types/audio";
 import { COLORS } from "@/lib/constants";
 
@@ -14,6 +14,11 @@ interface WaveformCanvasProps {
   overlayPeaks?: WaveformPeaks | null;
   overlayColor?: string;
   overlayOffset?: number; // 秒単位のタイミングオフセット
+  onOverlayOffsetChange?: (newOffset: number) => void; // ドラッグでオフセット変更
+  // 範囲選択
+  selectionStart?: number | null; // 秒
+  selectionEnd?: number | null;   // 秒
+  onSelectionChange?: (start: number, end: number) => void;
 }
 
 export default function WaveformCanvas({
@@ -26,9 +31,20 @@ export default function WaveformCanvas({
   overlayPeaks,
   overlayColor,
   overlayOffset = 0,
+  onOverlayOffsetChange,
+  selectionStart,
+  selectionEnd,
+  onSelectionChange,
 }: WaveformCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // ドラッグ状態
+  const dragRef = useRef<{ startX: number; startOffset: number } | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+
+  // 範囲選択状態
+  const selectionDragRef = useRef<{ startX: number; startTime: number } | null>(null);
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -41,7 +57,6 @@ export default function WaveformCanvas({
     const width = Math.floor(rect.width);
 
     if (width === 0) {
-      // コンテナ幅がまだ0の場合、リトライ
       requestAnimationFrame(draw);
       return;
     }
@@ -71,7 +86,7 @@ export default function WaveformCanvas({
     ctx.lineTo(width, centerY);
     ctx.stroke();
 
-    // 波形描画関数（offsetSec分だけ右にずらして描画）
+    // 波形描画関数
     const drawWaveform = (p: WaveformPeaks, c: string, alpha: number = 1, offsetSec: number = 0) => {
       const numBins = p.positive.length;
       if (numBins === 0) return;
@@ -96,9 +111,46 @@ export default function WaveformCanvas({
       drawWaveform(peaks, color);
     }
 
-    // オーバーレイ波形（overlayOffsetぶんずらして描画）
+    // オーバーレイ波形
     if (overlayPeaks && overlayColor) {
       drawWaveform(overlayPeaks, overlayColor, 0.5, overlayOffset);
+
+      // ドラッグ可能インジケーター（オフセット変更対応時）
+      if (onOverlayOffsetChange) {
+        const offsetX = duration > 0 ? (overlayOffset / duration) * width : 0;
+        ctx.strokeStyle = overlayColor;
+        ctx.globalAlpha = 0.6;
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(offsetX, 0);
+        ctx.lineTo(offsetX, height);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.globalAlpha = 1;
+
+        // ラベル
+        ctx.fillStyle = overlayColor;
+        ctx.globalAlpha = 0.8;
+        ctx.font = "9px sans-serif";
+        ctx.fillText(`drag to adjust`, Math.max(2, offsetX + 4), 12);
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    // 範囲選択ハイライト
+    if (duration > 0 && selectionStart != null && selectionEnd != null) {
+      const x1 = (selectionStart / duration) * width;
+      const x2 = (selectionEnd / duration) * width;
+      const sx = Math.min(x1, x2);
+      const sw = Math.abs(x2 - x1);
+      ctx.fillStyle = "rgba(255,255,255,0.15)";
+      ctx.fillRect(sx, 0, sw, height);
+      // 端のハンドル
+      ctx.strokeStyle = "rgba(255,255,255,0.6)";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(sx, 0); ctx.lineTo(sx, height); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(sx + sw, 0); ctx.lineTo(sx + sw, height); ctx.stroke();
     }
 
     // プレイヘッド
@@ -112,42 +164,109 @@ export default function WaveformCanvas({
       ctx.lineTo(playheadX, height);
       ctx.stroke();
     }
-  }, [peaks, color, currentTime, duration, height, overlayPeaks, overlayColor, overlayOffset]);
+  }, [peaks, color, currentTime, duration, height, overlayPeaks, overlayColor, overlayOffset,
+      onOverlayOffsetChange, selectionStart, selectionEnd]);
 
-  useEffect(() => {
-    draw();
-  }, [draw]);
+  useEffect(() => { draw(); }, [draw]);
 
-  // リサイズ対応
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
-
-    const observer = new ResizeObserver(() => {
-      draw();
-    });
+    const observer = new ResizeObserver(() => draw());
     observer.observe(container);
     return () => observer.disconnect();
   }, [draw]);
 
+  // マウスダウン: オフセットドラッグ or 範囲選択 or シーク
+  const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    if (!canvas || duration <= 0) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const clickTime = (x / rect.width) * duration;
+
+    if (onOverlayOffsetChange) {
+      // overlayドラッグモード
+      dragRef.current = { startX: e.clientX, startOffset: overlayOffset };
+      setIsDragging(true);
+      return;
+    }
+
+    if (onSelectionChange) {
+      // 範囲選択モード
+      selectionDragRef.current = { startX: x, startTime: clickTime };
+      return;
+    }
+  };
+
+  const handleMouseMove = useCallback((e: MouseEvent) => {
+    if (dragRef.current && onOverlayOffsetChange) {
+      const canvas = canvasRef.current;
+      if (!canvas || duration <= 0) return;
+      const rect = canvas.getBoundingClientRect();
+      const dx = e.clientX - dragRef.current.startX;
+      const deltaSec = (dx / rect.width) * duration;
+      const newOffset = +(dragRef.current.startOffset + deltaSec).toFixed(2);
+      onOverlayOffsetChange(newOffset);
+    }
+
+    if (selectionDragRef.current && onSelectionChange) {
+      const canvas = canvasRef.current;
+      if (!canvas || duration <= 0) return;
+      const rect = canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const currentTime = Math.max(0, Math.min((x / rect.width) * duration, duration));
+      const startTime = selectionDragRef.current.startTime;
+      onSelectionChange(
+        Math.min(startTime, currentTime),
+        Math.max(startTime, currentTime)
+      );
+    }
+  }, [onOverlayOffsetChange, onSelectionChange, duration]);
+
+  const handleMouseUp = useCallback(() => {
+    dragRef.current = null;
+    selectionDragRef.current = null;
+    setIsDragging(false);
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [handleMouseMove, handleMouseUp]);
+
   const handleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    // ドラッグ後はシーク不要
+    if (isDragging) return;
+    if (onOverlayOffsetChange) return; // ドラッグモード時はシーク無効
+    if (onSelectionChange) return; // 選択モード時はシーク無効
     if (!onSeek || !peaks || duration <= 0) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
-    const ratio = x / rect.width;
-    onSeek(ratio * duration);
+    onSeek((x / rect.width) * duration);
   };
+
+  const cursor = onOverlayOffsetChange
+    ? isDragging ? "grabbing" : "grab"
+    : onSelectionChange
+    ? "text"
+    : "pointer";
 
   return (
     <div ref={containerRef} className="w-full" style={{ height }}>
       <canvas
         ref={canvasRef}
+        onMouseDown={handleMouseDown}
         onClick={handleClick}
-        className="cursor-pointer rounded"
+        className="rounded"
         data-testid="waveform-canvas"
-        style={{ width: "100%", height: "100%" }}
+        style={{ width: "100%", height: "100%", cursor }}
       />
     </div>
   );

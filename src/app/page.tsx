@@ -5,7 +5,6 @@ import { AudioTrack, WaveformPeaks } from "@/types/audio";
 import TrackPanel from "@/components/TrackPanel";
 import CompareSection from "@/components/CompareSection";
 import { COLORS } from "@/lib/constants";
-import { analyzePitch } from "@/lib/audio";
 
 export default function Home() {
   // トラック1 state
@@ -22,11 +21,6 @@ export default function Home() {
   const [isPlaying2, setIsPlaying2] = useState(false);
   const [currentTime2, setCurrentTime2] = useState(0);
 
-  // ピッチ解析
-  const [pitchAnalyzing, setPitchAnalyzing] = useState(false);
-  const [pitchProgress, setPitchProgress] = useState(0);
-  const [pitchResult, setPitchResult] = useState<string | null>(null);
-
   const handleTrack1Loaded = useCallback((t: AudioTrack, p: WaveformPeaks) => {
     setTrack1(t);
     setPeaks1(p);
@@ -40,48 +34,6 @@ export default function Home() {
     setCurrentTime2(0);
     setIsPlaying2(false);
   }, []);
-
-  const handlePitchAnalysis = async () => {
-    const target = track1 || track2;
-    if (!target || pitchAnalyzing) return;
-
-    setPitchAnalyzing(true);
-    setPitchProgress(0);
-    setPitchResult(null);
-
-    await new Promise<void>((resolve) => {
-      setTimeout(() => {
-        const pitches = analyzePitch(target.buffer, (pct) => {
-          setPitchProgress(pct);
-        });
-
-        let sum = 0;
-        let count = 0;
-        for (let i = 0; i < pitches.length; i++) {
-          if (pitches[i] > 0) {
-            sum += pitches[i];
-            count++;
-          }
-        }
-        const avgPitch = count > 0 ? sum / count : 0;
-
-        const noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
-        let noteStr = "検出不可";
-        if (avgPitch > 0) {
-          const noteNum = 12 * Math.log2(avgPitch / 440) + 69;
-          const note = Math.round(noteNum);
-          const octave = Math.floor(note / 12) - 1;
-          const name = noteNames[note % 12];
-          noteStr = `${name}${octave} (${avgPitch.toFixed(1)} Hz)`;
-        }
-
-        setPitchResult(`平均ピッチ: ${noteStr} (${count}フレーム検出)`);
-        setPitchAnalyzing(false);
-        setPitchProgress(1);
-        resolve();
-      }, 50);
-    });
-  };
 
   return (
     <main className="max-w-4xl mx-auto p-4 space-y-6">
@@ -134,35 +86,6 @@ export default function Home() {
         volume2={volume2}
       />
 
-      {/* ピッチ解析（オプション） */}
-      <div className="rounded-lg p-4" style={{ backgroundColor: "var(--color-surface)" }}>
-        <h3 className="text-sm font-medium mb-3">ピッチ解析（オプション）</h3>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={handlePitchAnalysis}
-            disabled={(!track1 && !track2) || pitchAnalyzing}
-            className="px-3 py-1.5 text-xs rounded bg-white/10 hover:bg-white/20 transition disabled:opacity-50"
-          >
-            {pitchAnalyzing ? `解析中... ${Math.round(pitchProgress * 100)}%` : "ピッチ解析を実行"}
-          </button>
-          {pitchResult && (
-            <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>
-              {pitchResult}
-            </span>
-          )}
-        </div>
-        {pitchAnalyzing && (
-          <div className="mt-2 h-1 rounded-full overflow-hidden" style={{ backgroundColor: "var(--color-surface-light)" }}>
-            <div
-              className="h-full transition-all"
-              style={{
-                width: `${pitchProgress * 100}%`,
-                backgroundColor: COLORS.brand,
-              }}
-            />
-          </div>
-        )}
-      </div>
     </main>
   );
 }

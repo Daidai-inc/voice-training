@@ -107,14 +107,18 @@ export default function CompareSection({
 
     // トラック2（オフセット考慮）
     const t2ActualStart = playFrom - offset2;
-    const t2Duration = loopMode ? Math.max(0, loopEnd - playFrom) : undefined;
     const { source: s2, gain: g2 } = createPlaybackNodes(ctx, track2.buffer, volume2, 0);
     source2Ref.current = s2;
     gain2Ref.current = g2;
     if (t2ActualStart >= 0 && t2ActualStart < dur2) {
+      // track2上での再生時間 = loopEnd - (playFrom) → track2座標では loopEnd - offset2 - t2ActualStart
+      const t2Duration = loopMode ? Math.max(0, loopEnd - offset2 - t2ActualStart) : undefined;
       s2.start(now, t2ActualStart, t2Duration);
     } else if (t2ActualStart < 0) {
-      s2.start(now + Math.abs(t2ActualStart), 0, t2Duration);
+      // 遅延開始の場合、遅延分だけ再生時間を短縮
+      const delay = Math.abs(t2ActualStart);
+      const t2Duration = loopMode ? Math.max(0, loopEnd - playFrom - delay) : undefined;
+      s2.start(now + delay, 0, t2Duration);
     }
 
     startTimeRef.current = now - playFrom;

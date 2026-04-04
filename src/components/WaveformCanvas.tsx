@@ -190,11 +190,15 @@ export default function WaveformCanvas({
     dragMovedRef.current = false;
     gestureOwnerRef.current = true; // このインスタンスがジェスチャーを開始
 
-    if (onOverlayOffsetChange) {
-      // オーバーレイ波形の存在範囲（offsetX以降）をクリックした場合のみオフセットドラッグ
-      // それ以外（空白部分）は範囲選択に渡す（P1修正）
-      const offsetX = duration > 0 ? (overlayOffset / duration) * (canvasRef.current?.getBoundingClientRect().width ?? 1) : 0;
-      if (x >= offsetX - 10) {
+    if (onOverlayOffsetChange && overlayPeaks) {
+      // オーバーレイ波形の描画範囲内クリックのみオフセットドラッグ
+      // 描画範囲外（空白エリア）は範囲選択に渡す
+      const canvasWidth = canvasRef.current?.getBoundingClientRect().width ?? 1;
+      const overlayStartX = duration > 0 ? (overlayOffset / duration) * canvasWidth : 0;
+      // オーバーレイの終端X（オフセット + オーバーレイのduration相当）
+      // overlayPeaksから正確な長さは取れないのでcanvasWidth全体を上限とする
+      const overlayEndX = canvasWidth;
+      if (x >= overlayStartX - 8 && x <= overlayEndX) {
         dragRef.current = { startX: e.clientX, startOffset: overlayOffset };
         setIsDragging(true);
         return;
